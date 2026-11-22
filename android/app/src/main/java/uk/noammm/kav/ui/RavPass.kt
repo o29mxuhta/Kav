@@ -73,7 +73,7 @@ internal enum class PayApp(
         "7b3e2b1ef624d1dcde74fa7b27f0b68b752a5cab00d36c0b25b533247ee0b155", setOf("10.2.30"),
         "https://play.google.com/store/apps/details?id=com.egged.egg"), ;
 
-    fun name(): String = T(en, he)
+    fun label(): String = T(en, he)
 
     companion object {
         // The rider's choice on Settings' Paying page; Rav-Pass until they pick another. Read from the phone at start
@@ -253,7 +253,7 @@ internal fun PayCard(modifier: Modifier = Modifier) {
             T("Pay for a ride", "תשלום על נסיעה"),
             subtitle = when {
                 action -> T("Action required", "נדרשת פעולה")
-                offer -> T("Set up paying with ${PayApp.current.name()}", "הגדרת תשלום עם ${PayApp.current.he}")
+                offer -> T("Set up paying with ${PayApp.current.label()}", "הגדרת תשלום עם ${PayApp.current.he}")
                 else -> null
             },
             subtitleColor = if (action) K.problem else K.accentInk,
@@ -294,7 +294,7 @@ internal fun RidePay(section: RavPass.Section, carmelit: Boolean, board: String?
         if (RideTicketRow(section, line, depMs)) return@Column
         Row(
             Modifier.fillMaxWidth()
-                .clickable(role = Role.Button, onClickLabel = T("Open the ${PayApp.current.name()} app", "מעבר לאפליקציית ${PayApp.current.he}")) { RavPass.open(ctx, section, PayFor(line, off)) }
+                .clickable(role = Role.Button, onClickLabel = T("Open the ${PayApp.current.label()} app", "מעבר לאפליקציית ${PayApp.current.he}")) { RavPass.open(ctx, section, PayFor(line, off)) }
                 // The title's font keeps room above its capitals, so half a dp less on top centres the text you see.
                 .padding(start = K.gap3, end = K.gap3, top = 11.5.dp, bottom = 12.5.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -402,7 +402,7 @@ internal fun PayModeSwitch() {
     val on = Shown.payments || action
     ListGroup {
         row {
-            ToggleRow(T("Pay with ${PayApp.current.name()}", "תשלום עם ${PayApp.current.he}"), on, { Canvas(Modifier.size(18.dp)) { drawQr() } },
+            ToggleRow(T("Pay with ${PayApp.current.label()}", "תשלום עם ${PayApp.current.he}"), on, { Canvas(Modifier.size(18.dp)) { drawQr() } },
                 subtitle = if (action) T("Action required", "נדרשת פעולה") else null,
                 subtitleMaxLines = 2, subtitleColor = if (action) K.problem else null) { want ->
                 when {
@@ -440,7 +440,7 @@ internal fun PayOffAskHost() {
 @Composable
 private fun PayingHeader() {
     val app = PayApp.current
-    InfoHeader(T("Paying", "תשלום"), T("Pay buttons on Home and on each ride open ${app.name()}. It needs two of Android's permissions: showing over other apps, for a small button back to Kav while you pay, and Kav's ticket reader, which reads only ${app.en}'s ticket screens to show your ticket in Kav.",
+    InfoHeader(T("Paying", "תשלום"), T("Pay buttons on Home and on each ride open ${app.label()}. It needs two of Android's permissions: showing over other apps, for a small button back to Kav while you pay, and Kav's ticket reader, which reads only ${app.en}'s ticket screens to show your ticket in Kav.",
         "כפתורי התשלום במסך הבית ובכל נסיעה פותחים את ${app.he}. צריך בשביל זה שתי הרשאות של Android: הצגה מעל אפליקציות אחרות, לכפתור קטן שמחזיר ל-Kav בזמן התשלום, וקורא הכרטיסים של Kav, שקורא רק את מסכי הכרטיס ${app.heOf} כדי להציג את הכרטיס שלכם ב-Kav."))
 }
 
@@ -460,13 +460,13 @@ internal fun PayingSettings() {
     // Which app paying goes through, while paying is on (or was on and lost a piece: the way back is here too).
     if (Shown.payments || PayMode.lost.isNotEmpty()) PayAppChoice()
     if (!Shown.payments) return
-    SectionHeader(PayApp.current.name())
+    SectionHeader(PayApp.current.label())
     PlaceGroup(listOf(
         Place(T("Payment cards", "אמצעי תשלום"), Icons.Rounded.CreditCard, RavPass.paymentCards),
         Place(T("Profile", "אזור אישי"), Icons.Rounded.Person, RavPass.profile),
         Place(T("Discount profile", "פרופיל הנחה"), Icons.Rounded.Percent, RavPass.discountProfile),
     ))
-    SectionHeader(T("More from ${PayApp.current.name()}", "עוד ${PayApp.current.heIn}"))
+    SectionHeader(T("More from ${PayApp.current.label()}", "עוד ${PayApp.current.heIn}"))
     PlaceGroup(listOf(
         // Under More: Rav-Pass's picker closes itself at once for a rider with only a private account (10.2.30's
         // AccountSelectionFragment picks it and goes back), so it's for riders with a business account too.
@@ -519,7 +519,7 @@ private fun PayAppChoice() {
     var open by remember { mutableStateOf(false) }
     ListGroup {
         row {
-            ListRow(T("Payment app", "אפליקציית התשלום"), subtitle = PayApp.current.name(),
+            ListRow(T("Payment app", "אפליקציית התשלום"), subtitle = PayApp.current.label(),
                 leading = { Icon(Icons.Rounded.Wallet, contentDescription = null, tint = K.textSecondary, modifier = Modifier.size(22.dp)) },
                 onClick = { open = true })
         }
@@ -532,7 +532,7 @@ private fun PayAppChoice() {
             style = K.type.body, color = K.textSecondary)
         Spacer(Modifier.height(K.gap4))
         for (app in PayApp.entries) {
-            ListRow(app.name(),
+            ListRow(app.label(),
                 trailing = { androidx.compose.material3.RadioButton(app == PayApp.current, onClick = null) },
                 onClick = {
                     PayApp.choose(ctx, app)

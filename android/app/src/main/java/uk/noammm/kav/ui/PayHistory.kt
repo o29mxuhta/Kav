@@ -91,12 +91,12 @@ private fun PayHistoryScreen(onClose: () -> Unit) {
                         Stat(T("This month", "החודש"), rides(thisMonth.size), thisTotal)
                         Stat(T("Last month", "חודש שעבר"), rides(lastMonth.size), lastTotal)
                     }
-                    if (thisTotal != null || lastTotal != null) Note(T("Prices are what ${PayApp.current.name()} quoted when you paid. Monthly caps can lower the charge.",
+                    if (thisTotal != null || lastTotal != null) Note(T("Prices are what ${PayApp.current.label()} quoted when you paid. Monthly caps can lower the charge.",
                         "המחירים הם מה ש${PayApp.current.he} הציגה כשמשלמים. תקרות חודשיות יכולות להוריד את החיוב."))
                 }
             }
             if (months.isEmpty()) item(key = "none") {
-                NoteCard(T("Rides you pay for with ${PayApp.current.name()} show here.", "נסיעות שתשלמו עליהן ${PayApp.current.heIn} יופיעו כאן."), Modifier.padding(top = K.gap4))
+                NoteCard(T("Rides you pay for with ${PayApp.current.label()} show here.", "נסיעות שתשלמו עליהן ${PayApp.current.heIn} יופיעו כאן."), Modifier.padding(top = K.gap4))
             }
             months.forEach { (key, list) ->
                 item(key = "m$key") {

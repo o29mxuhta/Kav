@@ -172,9 +172,9 @@ internal fun RavPassLogo(size: androidx.compose.ui.unit.Dp = 72.dp) {
     val shape = RoundedCornerShape(size / 4)
     Box(Modifier.size(size).clip(shape).background(Color.White).border(0.5.dp, K.separator, shape), contentAlignment = Alignment.Center) {
         if (PayApp.current == PayApp.RAV_PASS)
-            Image(painterResource(R.drawable.ravpass_logo), contentDescription = PayApp.current.name(), modifier = Modifier.requiredSize(size * 1.5f))
+            Image(painterResource(R.drawable.ravpass_logo), contentDescription = PayApp.current.label(), modifier = Modifier.requiredSize(size * 1.5f))
         else
-            Icon(Icons.Rounded.QrCodeScanner, contentDescription = PayApp.current.name(), tint = K.accentInk, modifier = Modifier.size(size * 0.6f))
+            Icon(Icons.Rounded.QrCodeScanner, contentDescription = PayApp.current.label(), tint = K.accentInk, modifier = Modifier.size(size * 0.6f))
     }
 }
 
@@ -190,9 +190,9 @@ private fun GetRavPass() {
     val icon = remember(store) {
         store.pkg?.let { runCatching { ctx.packageManager.getApplicationIcon(it).toBitmap(96, 96).asImageBitmap() }.getOrNull() }
     }
-    Title(T("${PayApp.current.name()} is required", "נדרשת ${PayApp.current.he}"))
+    Title(T("${PayApp.current.label()} is required", "נדרשת ${PayApp.current.he}"))
     Spacer(Modifier.height(K.gap2))
-    Text(T("Since Kav 5, paying goes through the ${PayApp.current.name()} app. Install it, sign in and add a way to pay, then come back to Kav.",
+    Text(T("Since Kav 5, paying goes through the ${PayApp.current.label()} app. Install it, sign in and add a way to pay, then come back to Kav.",
         "מ-Kav 5 התשלום עובר דרך האפליקציה ${PayApp.current.he}. התקינו אותה, התחברו והוסיפו אמצעי תשלום, ואז חזרו ל-Kav."),
         style = K.type.body, color = K.textSecondary, textAlign = TextAlign.Center)
     Spacer(Modifier.height(K.gap5))
@@ -220,7 +220,7 @@ private fun Allow(rows: List<Need>, missing: List<Need>, greyed: Need?, onOverla
                 ) { if (it) onOverlay() }
                 Need.READER -> ToggleRow(T("Kav's ticket reader", "קורא הכרטיסים של Kav"), on,
                     { Icon(Icons.Rounded.ConfirmationNumber, contentDescription = null, tint = toggleInk(on), modifier = Modifier.size(22.dp)) },
-                    subtitle = T("Shows your ${PayApp.current.name()} ticket in Kav", "מציג את הכרטיס שלכם ${PayApp.current.heFrom} ב-Kav"), subtitleMaxLines = 2,
+                    subtitle = T("Shows your ${PayApp.current.label()} ticket in Kav", "מציג את הכרטיס שלכם ${PayApp.current.heFrom} ב-Kav"), subtitleMaxLines = 2,
                 ) { if (it) onReader() }
                 Need.APP -> {}
             }
@@ -275,6 +275,6 @@ private fun Done() {
     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(K.gap2),
         modifier = Modifier.padding(vertical = K.gap3)) {
         Icon(Icons.Rounded.CheckCircle, contentDescription = null, tint = K.accentInk, modifier = Modifier.size(26.dp))
-        Title(T("Paying with ${PayApp.current.name()} is on", "התשלום עם ${PayApp.current.he} פועל"))
+        Title(T("Paying with ${PayApp.current.label()} is on", "התשלום עם ${PayApp.current.he} פועל"))
     }
 }

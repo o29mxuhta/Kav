@@ -56,7 +56,7 @@ internal object FareFromRavPass {
     // "Student · from Rav-Pass", while the profile is still the one Rav-Pass gave.
     fun subtitle(name: String): String {
         val p = parts() ?: return name
-        return if (p[0] == "fare" && p[1] == Shown.fareProfile.name) name + T(" · from ${PayApp.current.name()}", " · ${PayApp.current.heFrom}") else name
+        return if (p[0] == "fare" && p[1] == Shown.fareProfile.name) name + T(" · from ${PayApp.current.label()}", " · ${PayApp.current.heFrom}") else name
     }
 
     // Why the last try left the choice by hand.
@@ -65,13 +65,13 @@ internal object FareFromRavPass {
         val shown = p[2]
         val app = PayApp.current
         return when (p[0]) {
-            "nofare" -> T("${app.name()} shows “$shown”, which Kav has no fare profile for. Choose one by hand.",
+            "nofare" -> T("${app.label()} shows “$shown”, which Kav has no fare profile for. Choose one by hand.",
                 "${app.heIn} מופיע “$shown”, ול-Kav אין פרופיל הנחה כזה. בחרו פרופיל ידנית.")
-            "unknown" -> T("${app.name()} shows “$shown”, which isn't one of its own profile names Kav knows. Choose one by hand.",
+            "unknown" -> T("${app.label()} shows “$shown”, which isn't one of its own profile names Kav knows. Choose one by hand.",
                 "${app.heIn} מופיע “$shown”, שאינו אחד משמות הפרופילים ${app.heOf} ש-Kav מכירה. בחרו פרופיל ידנית.")
-            "several" -> T("${app.name()} shows more than one profile (“$shown”). Choose one by hand.",
+            "several" -> T("${app.label()} shows more than one profile (“$shown”). Choose one by hand.",
                 "${app.heIn} מופיע יותר מפרופיל אחד (“$shown”). בחרו פרופיל ידנית.")
-            "nothing" -> T("${app.name()} shows no discount profile. Choose one by hand.", "${app.heIn} לא מופיע פרופיל הנחה. בחרו פרופיל ידנית.")
+            "nothing" -> T("${app.label()} shows no discount profile. Choose one by hand.", "${app.heIn} לא מופיע פרופיל הנחה. בחרו פרופיל ידנית.")
             else -> null
         }
     }
@@ -85,8 +85,8 @@ internal fun FareFromRavPassRow() {
     val reader = TicketStore.on(ctx)
     val app = PayApp.current
     ListRow(
-        T("Get it from ${app.name()}", "קבלה ${app.heFrom}"),
-        subtitle = if (!reader) T("Needs Kav's ticket reader: turn on Pay with ${app.name()} in Settings", "צריך את קורא הכרטיסים של Kav: הפעילו את התשלום עם ${app.he} בהגדרות")
+        T("Get it from ${app.label()}", "קבלה ${app.heFrom}"),
+        subtitle = if (!reader) T("Needs Kav's ticket reader: turn on Pay with ${app.label()} in Settings", "צריך את קורא הכרטיסים של Kav: הפעילו את התשלום עם ${app.he} בהגדרות")
             else FareFromRavPass.why() ?: T("Opens ${app.en}'s Profile tab, and Kav reads the profile it shows there", "פותח את האזור האישי ${app.heIn}, ו-Kav קוראת את הפרופיל שמופיע שם"),
         subtitleMaxLines = Int.MAX_VALUE,
         onClick = if (reader) ({ FareFromRavPass.ask(ctx) }) else null,
