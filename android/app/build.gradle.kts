@@ -68,10 +68,12 @@ android {
     if (project.hasProperty("kavDevId")) {
         val id = project.property("kavDevId").toString().trim().let { if (it.isEmpty() || it == "true") "dev" else it }
         require(Regex("[a-z][a-z0-9]{0,15}").matches(id)) { "kavDevId: one short lower-case word" }
+        // -PkavDevName overrides the display name (default "Kav $id"), e.g. -PkavDevName=Kav-Dev.
+        val appName = (project.findProperty("kavDevName") as String?)?.trim()?.takeIf { it.isNotEmpty() } ?: "Kav $id"
         val res = project.layout.buildDirectory.dir("generated/kavDevId/res").get().asFile
         File(res, "values/strings.xml").apply {
             parentFile.mkdirs()
-            writeText("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n    <string name=\"app_name\">Kav $id</string>\n</resources>\n")
+            writeText("<?xml version=\"1.0\" encoding=\"utf-8\"?>\n<resources>\n    <string name=\"app_name\">$appName</string>\n</resources>\n")
         }
         for (type in listOf("debug", "release")) {
             buildTypes.getByName(type).applicationIdSuffix = ".$id"
