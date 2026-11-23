@@ -12,6 +12,11 @@ val liveKey: String = System.getenv("KAV_LIVE_KEY")?.takeIf { it.isNotBlank() }
     ?: Properties().apply { rootProject.file("local.properties").takeIf { it.exists() }?.reader()?.use { load(it) } }
         .getProperty("kav.liveKey").orEmpty()
 
+// Fork CI builds: the Actions run number bumps the version each build, so a new debug APK installs over the previous
+// one (Android takes an update only at a higher versionCode). 1000+ keeps it above any local build's 47; run numbers
+// only grow for a workflow that stays. Off CI nothing changes.
+val ciBuild: Int? = System.getenv("GITHUB_RUN_NUMBER")?.toIntOrNull()
+
 android {
     namespace = "uk.noammm.kav"
     compileSdk = 36
@@ -20,8 +25,8 @@ android {
         applicationId = "uk.noammm.kav"
         minSdk = 26
         targetSdk = 35
-        versionCode = 47
-        versionName = "5.1"
+        versionCode = ciBuild?.let { 1000 + it } ?: 47
+        versionName = "5.1" + (ciBuild?.let { "-fork.$it" } ?: "")
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // MapLibre's renderer is native code. Every phone Kav can reach is arm64;
         // x86_64 stays so the release APK still installs on the emulator.
@@ -29,6 +34,18 @@ android {
         buildConfigField("String", "KAV_LIVE_KEY", "\"$liveKey\"")
         // Timing-only log lines of the Rav-Pass ticket reader (TicketReader.timing), for a test build: -PkavTicketTiming=true.
         buildConfigField("boolean", "TICKET_TIMING", (project.findProperty("kavTicketTiming") == "true").toString())
+    }
+
+    signingConfigs {
+        getByName("debug") {
+            val forkKey = rootProject.file("fork-debug.keystore")
+            if (ciBuild != null && forkKey.exists()) {
+                storeFile = forkKey
+                storePassword = "android"
+                keyAlias = "androiddebugkey"
+                keyPassword = "android"
+            }
+        }
     }
 
     buildTypes {
