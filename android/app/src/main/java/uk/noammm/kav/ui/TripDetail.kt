@@ -28,6 +28,9 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.json.JSONObject
+import uk.noammm.kav.ext.Actions
+import uk.noammm.kav.ext.Slots
 import uk.noammm.kav.KavModel
 import uk.noammm.kav.data.KavLive
 import uk.noammm.kav.data.KavPlan
@@ -128,14 +131,18 @@ fun TripDetailScreen(
     fun leavePlan() {
         if (planFromNavigation) { planFromNavigation = false; navigating = true } else onBack()
     }
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    // Leaving navigation for Home, by its back button or Back, and its trip plan shown over it: each by name.
+    fun navArgs() = JSONObject().put("trip", Slots.trip(trip, r))
+    fun planShown() { if (navigating) { navigating = false; planFromNavigation = true } }
+    val exitNavigation = { if (!Actions.take(ctx, "nav.exit", ::navArgs)) onHome() }
     androidx.activity.compose.BackHandler {
         when {
-            navigating -> onHome()
+            navigating -> exitNavigation()
             tracking != null -> tracking = null
             else -> leavePlan()
         }
     }
-    val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = androidx.compose.runtime.rememberCoroutineScope()
     // The boards of the trip's stops asked ahead, so the one tapped opens with its provider's times: where it boards,
     // changes and gets off first, then the stops along its rides.
@@ -162,6 +169,22 @@ fun TripDetailScreen(
         }
     }
     var sharingOpen by remember(trip) { mutableStateOf(false) }
+    fun start() { navigating = true; planFromNavigation = false; onStart() }
+    fun end() { navigating = false; onEnd() }
+    // Kav's own, for Kav.kavAction: on the trip on this page.
+    DisposableEffect(trip) {
+        Actions.own("trip.start") { _, _ -> start() }
+        Actions.own("trip.end") { _, _ -> end() }
+        Actions.own("share") { _, _ -> sharingOpen = true }
+        Actions.own("nav.exit") { _, _ -> onHome() }
+        Actions.own("nav.plan") { _, _ -> planShown() }
+        Actions.own("trip.track") { _, a ->
+            trip.legs.getOrNull(a.optInt("leg", -1))?.takeIf { it.kind == Transit.LegKind.RIDE }?.let { l ->
+                tracking = l.copy(tripId = a.optLong("tripId", l.tripId), shortName = a.optString("line").ifEmpty { l.shortName }) to l.fromStop
+            }
+        }
+        onDispose { }
+    }
     FreshAlerts(trip.rides.map { it to r })
     FreshCrowd(trip.rides.map { it to r })
     CompositionLocalProvider(LocalLineOpener provides openLine) {
@@ -172,10 +195,14 @@ fun TripDetailScreen(
             extra = { TripSlots(model, trip, r) },
             me = model.here?.takeIf { model.hereFresh }, heading = model.heading,
             onMapShown = { model.tripMapShown = it },
-            onTrack = { leg, stopId -> tracking = leg to stopId },
-            onStart = { navigating = true; planFromNavigation = false; onStart() },
-            onReport = { model.report = it },
-            onShare = { sharingOpen = true }, asked = asked)
+            onTrack = { leg, stopId ->
+                // The ride by its place in the trip, and the bus that Live location follows on it.
+                val i = trip.legs.indexOfFirst { it.kind == Transit.LegKind.RIDE && it.fromStop == leg.fromStop && it.toStop == leg.toStop }
+                if (!Actions.take(ctx, "trip.track") { navArgs().put("leg", i).put("tripId", leg.tripId).put("line", leg.shortName) }) tracking = leg to stopId
+            },
+            onStart = { if (!Actions.take(ctx, "trip.start") { JSONObject().put("trip", Slots.trip(trip, r)) }) start() },
+            onReport = { model.openReport(it) },
+            onShare = { if (!Actions.take(ctx, "share") { JSONObject().put("trip", Slots.trip(trip, r)) }) sharingOpen = true }, asked = asked)
     }
     androidx.compose.animation.AnimatedContent(
         targetState = Triple(tracking != null, navigating || planFromNavigation, tracking),
@@ -196,9 +223,9 @@ fun TripDetailScreen(
                 CompositionLocalProvider(LocalBottomBarInset provides WindowInsets.safeDrawing.asPaddingValues().calculateBottomPadding()) {
                 NavigateScreen(
                     model, trip, r, fromLabel, toLabel,
-                    onStop = { navigating = false; onEnd() },
-                    onExit = onHome,
-                    onPlan = { navigating = false; planFromNavigation = true },
+                    onStop = { if (!Actions.take(ctx, "trip.end") { JSONObject().put("trip", Slots.trip(trip, r)) }) end() },
+                    onExit = exitNavigation,
+                    onPlan = { if (!Actions.take(ctx, "nav.plan", ::navArgs)) planShown() },
                 )
                 }
                 androidx.compose.animation.AnimatedVisibility(
@@ -239,7 +266,10 @@ private fun TripDetailBody(
     asked: Long = 0,
     extra: @Composable () -> Unit = {},
 ) {
+    // What the trip's parts are told (ExtParts.kt): the trip, as route rules get it.
+    val about = { JSONObject().put("trip", Slots.trip(trip, r)) }
     Column(Modifier.fillMaxSize()) {
+        KavPart("trip.header", trip, about) {
         Row(
             Modifier.fillMaxWidth().padding(K.gap3).heightIn(min = 48.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -255,18 +285,19 @@ private fun TripDetailBody(
                 StartButton(onStart)
             }
         }
+        }
 
 
         Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())
             .padding(bottom = LocalBottomBarInset.current)) {
             // Where you are and which way you face before a trip starts, as while it's under way.
-            RouteMap(trip, r, modifier = Modifier.padding(horizontal = K.gap3, vertical = K.gap2),
-                me = me, heading = heading, onShown = onMapShown)
-            Summary(trip, r)
-            // A route an extension's planner gave says so (PLAN.md 7.1), in Kav's own colours.
-            remember(trip.provider) { plannerName(trip.provider) }?.let { ByLabel(it, Modifier.padding(horizontal = K.gap4, vertical = K.gap2)) }
+            KavPart("trip.map", trip, about) {
+                RouteMap(trip, r, modifier = Modifier.padding(horizontal = K.gap3, vertical = K.gap2),
+                    me = me, heading = heading, onShown = onMapShown)
+            }
+            KavPart("trip.summary", trip, about) { Summary(trip, r) }
             Spacer(Modifier.height(K.gap3))
-            Timeline(trip, r, fromLabel, toLabel, onTrack, onReport, asked)
+            KavPart("trip.timeline", trip, about) { Timeline(trip, r, fromLabel, toLabel, onTrack, onReport, asked) }
             Spacer(Modifier.height(K.gap4))
             extra()
             Spacer(Modifier.height(K.gap4))
@@ -410,7 +441,7 @@ private fun Timeline(
                             mins += trip.legs[j].minutes; metres += trip.legs[j].meters; j++
                         }
                         if (mins >= 1 || metres > 30) Rail(Mark.NONE, walk, walk) {
-                            Step(walkLabel(metres, mins), null)
+                            KavPart("trip.walk", l, { leg(trip, r, i).put("metres", metres).put("minutes", mins) }) { Step(walkLabel(metres, mins), null) }
                         }
                     }
                 }
@@ -439,7 +470,7 @@ private fun Timeline(
                                 streetView = (board?.point ?: l.shape.firstOrNull())?.let { lookAt(it, l, r) },
                             )
                             Spacer(Modifier.height(K.gap2))
-                            BoardCard(l, wait, r, onTrack, onReport, asked) { RideSummary(l, r, fares[i]) }
+                            KavPart("trip.ride", l, { leg(trip, r, i) }) { BoardCard(l, wait, r, onTrack, onReport, asked) { RideSummary(l, r, fares[i]) } }
                         }
                     }
                     val alight = r.stop(l.toStop)
@@ -465,7 +496,7 @@ private fun Timeline(
                                 ChangeBlock(it)
                             }
                             Spacer(Modifier.height(K.gap2))
-                            BoardCard(next, nextWait, r, onTrack, onReport, asked) { RideSummary(next, r, fares[n]) }
+                            KavPart("trip.ride", next, { leg(trip, r, n) }) { BoardCard(next, nextWait, r, onTrack, onReport, asked) { RideSummary(next, r, fares[n]) } }
                         }
                         boarded = n
                     } else {
@@ -492,6 +523,10 @@ private fun Timeline(
         }
     }
 }
+
+// What a ride's or walk's part is told: the trip, the leg as route rules get it, and its index in the trip's legs.
+private fun leg(trip: Transit.Itinerary, r: Transit.Resolved, i: Int): JSONObject =
+    JSONObject().put("trip", Slots.trip(trip, r)).put("leg", uk.noammm.kav.ext.Pipeline.legJson(trip.legs[i], r)).put("index", i)
 
 // Under a ride's line: how many stops and minutes it rides, its own fare (rideFares), and paying for it with Rav-Pass.
 @Composable

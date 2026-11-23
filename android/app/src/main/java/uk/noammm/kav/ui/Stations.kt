@@ -215,17 +215,19 @@ private fun StationList(model: KavModel, net: Net, list: StationListState) {
     // Nearby, a stop's town is named only where it isn't the nearest town's.
     val homeTown = near.firstNotNullOfOrNull { if (RefTable.isHandle(it.first)) null else net.cityName(it.first).ifBlank { null } }
     Column(Modifier.fillMaxSize().graphicsLayer { alpha = under }) {
-        ScreenHeader(T("Stops", "תחנות"))
+        KavPart("stops.header", Unit, { org.json.JSONObject() }) { ScreenHeader(T("Stops", "תחנות")) }
         Box(Modifier.fillMaxSize()) {
         LazyColumn(Modifier.fillMaxSize(), state = listState, contentPadding = PaddingValues(
             start = K.gap4, end = K.gap4, bottom = LocalBottomBarInset.current + K.gap4,
         )) {
             item(key = "search") {
                 // The search and the map on one card.
-                Column(Modifier.fillMaxWidth().panel(K.rCard)) {
-                    KavField(q, { q = it }, T("Search stops", "חיפוש תחנות"), Modifier.fillMaxWidth(), search = true, flat = true)
-                    Separator()
-                    SelectOnMapRow(0.dp, framed = false) { onMap = true }
+                KavPart("stops.search", q, { org.json.JSONObject().put("query", q) }) {
+                    Column(Modifier.fillMaxWidth().panel(K.rCard)) {
+                        KavField(q, { q = it }, T("Search stops", "חיפוש תחנות"), Modifier.fillMaxWidth(), search = true, flat = true)
+                        Separator()
+                        SelectOnMapRow(0.dp, framed = false) { onMap = true }
+                    }
                 }
             }
             // Every row comes, goes and moves with a fade and a glide: hits as the name is typed, stops as you move.
@@ -236,8 +238,8 @@ private fun StationList(model: KavModel, net: Net, list: StationListState) {
                 } else if (hits.isNotEmpty()) item(key = "hits-gap") { Spacer(listMotion(quick = true).height(K.gap2)) }
                 itemsIndexed(hits, key = { _, s -> s }) { i, s ->
                     Box(listMotion(quick = true)) {
-                        if (RefTable.isHandle(s)) ExtStopListRow(s, null, first = i == 0, last = i == hits.lastIndex) { model.stationStop = s }
-                        else StopListRow(net, s, null, town = true, first = i == 0, last = i == hits.lastIndex) { model.stationStop = s }
+                        if (RefTable.isHandle(s)) ExtStopListRow(s, null, first = i == 0, last = i == hits.lastIndex) { if (!stopTaken(model, s)) model.stationStop = s }
+                        else StopListRow(net, s, null, town = true, first = i == 0, last = i == hits.lastIndex) { if (!stopTaken(model, s)) model.stationStop = s }
                     }
                 }
             } else {
@@ -249,12 +251,12 @@ private fun StationList(model: KavModel, net: Net, list: StationListState) {
                                 net, s, yoursLive[s].orEmpty(), shownAt, model.lineAlerts.filter { it.stop == net.stopKey(s) },
                                 first = i == 0, last = i == yours.lastIndex, day = yoursDays[s],
                                 asking = Schedules.boards && net.code.getOrElse(s) { 0 } > 0,
-                            ) { model.stationStop = s }
+                            ) { if (!stopTaken(model, s)) model.stationStop = s }
                         }
                     }
                     itemsIndexed(yoursExt, key = { _, s -> "saved-x-$s" }) { i, s ->
                         Box(listMotion(quick = true)) {
-                            key(known) { ExtStopListRow(s, null, first = yours.isEmpty() && i == 0, last = i == yoursExt.lastIndex) { model.stationStop = s } }
+                            key(known) { ExtStopListRow(s, null, first = yours.isEmpty() && i == 0, last = i == yoursExt.lastIndex) { if (!stopTaken(model, s)) model.stationStop = s } }
                         }
                     }
                 }
@@ -294,9 +296,9 @@ private fun StationList(model: KavModel, net: Net, list: StationListState) {
                     }
                     else -> itemsIndexed(near, key = { _, it -> it.first }) { i, (s, d) ->
                         Box(listMotion(quick = true)) {
-                            if (RefTable.isHandle(s)) ExtStopListRow(s, distanceLabel(d), first = i == 0, last = i == near.lastIndex) { model.stationStop = s }
+                            if (RefTable.isHandle(s)) ExtStopListRow(s, distanceLabel(d), first = i == 0, last = i == near.lastIndex) { if (!stopTaken(model, s)) model.stationStop = s }
                             else StopListRow(net, s, distanceLabel(d), town = net.cityName(s) != homeTown, first = i == 0, last = i == near.lastIndex) {
-                                model.stationStop = s
+                                if (!stopTaken(model, s)) model.stationStop = s
                             }
                         }
                     }
@@ -310,7 +312,7 @@ private fun StationList(model: KavModel, net: Net, list: StationListState) {
         onMap, net, model.here,
         onPick = {}, onDismiss = { onMap = false },
         onLocate = { model.locate(it.first, it.second) },
-        onStop = { s -> onMap = false; model.stationStop = s },
+        onStop = { s -> onMap = false; if (!stopTaken(model, s)) model.stationStop = s },
     )
 }
 
@@ -356,9 +358,12 @@ private fun DepartureBoard(model: KavModel, net: Net, stop: Int, onBack: () -> U
 
     var alerting by remember(stop) { mutableStateOf(false) }
     val alertable = remember(stop) { alertable(net, stop) }
+    // What the stop's parts are told (ExtParts.kt): which stop this is.
+    val about = { stopArgs(net, stop) }
     Box(Modifier.fillMaxSize()) {
     Column(Modifier.fillMaxSize().background(K.bg)) {
         ScreenHeader(T("Departures", "יציאות"), back = onBack)
+        KavPart("stop.header", stop, about) {
         Column(Modifier.padding(horizontal = K.gap4)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 StopGlyphOrPhoto(net, stop, null, thumb = 56.dp, kind = stopMode(net, stop), opened = true)
@@ -371,11 +376,11 @@ private fun DepartureBoard(model: KavModel, net: Net, stop: Int, onBack: () -> U
             Spacer(Modifier.height(K.gap3))
             ActionStrip {
                 ActionTile(T("From here", "מכאן"), T("Plan a trip from this stop", "תכנון נסיעה מהתחנה הזו"), onClick = {
-                    model.pendingFrom = placeOf(net, stop); model.tab = uk.noammm.kav.Tab.Directions
+                    planFromStop(model, stop, placeOf(net, stop), "from")
                 }) { ink, _ -> fromHereGlyph(ink) }
                 ActionDivider()
                 ActionTile(T("To here", "לכאן"), T("Plan a trip to this stop", "תכנון נסיעה לתחנה הזו"), onClick = {
-                    model.pendingTo = placeOf(net, stop); model.tab = uk.noammm.kav.Tab.Directions
+                    planFromStop(model, stop, placeOf(net, stop), "to")
                 }) { ink, _ -> toHereGlyph(ink) }
                 ActionDivider()
                 val ctx = LocalContext.current
@@ -403,6 +408,7 @@ private fun DepartureBoard(model: KavModel, net: Net, stop: Int, onBack: () -> U
                     ) { ink, fill -> bellGlyph(ink, fill) }
                 }
             }
+        }
         }
         Spacer(Modifier.height(K.gap3))
         val provider = sourceName(Schedules.source)
@@ -439,6 +445,7 @@ private fun DepartureBoard(model: KavModel, net: Net, stop: Int, onBack: () -> U
         // At the top, the board stays there as departures come in above its first row, so the soonest are always in
         // view; a list keyed by departure would otherwise keep that row first and push the new ones off the top.
         val boardState = androidx.compose.foundation.lazy.rememberLazyListState()
+        val board = rememberPart("stop.board", stop, about)
         val shownKeys = remember { arrayOfNulls<List<String>>(1) }
         SideEffect {
             if (shownKeys[0] != keys && boardState.firstVisibleItemIndex == 0 && boardState.firstVisibleItemScrollOffset == 0) {
@@ -451,6 +458,10 @@ private fun DepartureBoard(model: KavModel, net: Net, stop: Int, onBack: () -> U
         )) {
             // Keep extension controls above a departure list that can run into tomorrow.
             if (code > 0) item(key = "ext-slots") { StopSlots(model, "il.mot/gtfs/stop/$code", net.stopName(stop)) }
+            // Extensions' views on the board (stop.board), after API 3's cards; Kav's rows unless one replaces them.
+            partRows(board, "before")
+            partRows(board, "replace")
+            if (board?.replaced == null) {
             // A stop the week on the phone has nothing for, the first time its provider is asked: the board's rows as
             // shapes, until its times fill them in.
             if (standIn && lines.isEmpty()) items(5, key = { "skeleton-$it" }) { i ->
@@ -479,6 +490,8 @@ private fun DepartureBoard(model: KavModel, net: Net, stop: Int, onBack: () -> U
                     }
                 }
             }
+            }
+            partRows(board, "after")
         }
     }
     if (alerting) AlertSheet(model, net, stop) { alerting = false }
@@ -524,7 +537,7 @@ private fun ExtStopBoard(model: KavModel, net: Net, stop: Int, onBack: () -> Uni
                 Spacer(Modifier.width(K.gap3))
                 Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
                     Text(e?.name ?: T("Stop", "תחנה"), style = K.type.headline)
-                    Text(listOfNotNull(e?.code?.ifEmpty { null }?.let { T.ltr(it) }, T("Times by \u2068$name\u2069", "הזמנים מ-\u2068$name\u2069")).joinToString(" · "), style = K.type.subhead)
+                    e?.code?.takeIf { it.isNotEmpty() }?.let { Text(T.ltr(it), style = K.type.subhead) }
                 }
             }
             Spacer(Modifier.height(K.gap3))
@@ -532,11 +545,11 @@ private fun ExtStopBoard(model: KavModel, net: Net, stop: Int, onBack: () -> Uni
             ActionStrip {
                 val place = e?.let { uk.noammm.kav.data.Transit.Place(name = it.name, detail = "", lat = it.lat, lon = it.lon) }
                 ActionTile(T("From here", "מכאן"), T("Plan a trip from this stop", "תכנון נסיעה מהתחנה הזו"), onClick = {
-                    if (place != null) { model.pendingFrom = place; model.tab = uk.noammm.kav.Tab.Directions }
+                    if (place != null) planFromStop(model, stop, place, "from")
                 }) { ink, _ -> fromHereGlyph(ink) }
                 ActionDivider()
                 ActionTile(T("To here", "לכאן"), T("Plan a trip to this stop", "תכנון נסיעה לתחנה הזו"), onClick = {
-                    if (place != null) { model.pendingTo = place; model.tab = uk.noammm.kav.Tab.Directions }
+                    if (place != null) planFromStop(model, stop, place, "to")
                 }) { ink, _ -> toHereGlyph(ink) }
                 ActionDivider()
                 // Saved with Kav's other stops by its reference, so it stays its publisher's (Extensions.savedKey).
@@ -1022,23 +1035,18 @@ private fun StopListRow(net: Net, stop: Int, distance: String?, town: Boolean, f
     )
 }
 
-// An extension's stop in a list: its name as its provider gives it, and whose it is (PLAN.md 7.1, "by …"). No photo is
+// An extension's stop in a list: its name as its provider gives it. No photo is
 // asked for it: its place goes to nobody.
 @Composable
 private fun ExtStopListRow(stop: Int, distance: String?, first: Boolean, last: Boolean, onClick: () -> Unit) {
     val entry = Extensions.knownStop(stop)
-    val ns = entry?.first ?: RefTable.ref(stop)?.namespace
     ListRow(
         entry?.second?.name ?: T("Stop", "תחנה"), Modifier.groupItem(first, last, inset = RowInset),
-        subtitle = listOfNotNull(entry?.second?.code?.ifEmpty { null }?.let { T.ltr(it) }, ns?.let { byWords(Extensions.nameOf(it)) })
-            .joinToString(" · ").ifBlank { null },
+        subtitle = entry?.second?.code?.ifEmpty { null }?.let { T.ltr(it) },
         value = distance,
         leading = { StopGlyphOrPhoto(-1, null, kind = modeOf(entry?.second?.mode ?: 3), photo = null) }, onClick = onClick,
     )
 }
-
-// "by <extension>", set apart as theirs.
-internal fun byWords(name: String) = T("by \u2068$name\u2069", "מאת \u2068$name\u2069")
 
 // Where a row's text starts, past its 40 dp photo.
 private val RowInset = 68.dp

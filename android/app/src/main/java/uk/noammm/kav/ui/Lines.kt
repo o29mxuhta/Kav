@@ -197,7 +197,7 @@ private fun LineList(model: KavModel, net: Net, list: LineListState, note: Strin
     val listReady = list.leadReady || q.isNotBlank() || types.isNotEmpty()
 
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader(T("Lines", "קווים"))
+        KavPart("lines.header", Unit, { org.json.JSONObject() }) { ScreenHeader(T("Lines", "קווים")) }
         var scrolled by list::scrolled
         LaunchedEffect(listState) {
             snapshotFlow { listState.isScrollInProgress }.collect { if (it) scrolled = true }
@@ -238,18 +238,22 @@ private fun LineList(model: KavModel, net: Net, list: LineListState, note: Strin
 private fun LineSearch(q: String, onQ: (String) -> Unit, types: IntArray, onTypes: (IntArray) -> Unit) {
     Column {
         // The same card as the Stops tab's search.
-        Box(Modifier.fillMaxWidth().panel(K.rCard)) {
-            KavField(q, onQ, T("Line number or name", "מספר או שם קו"), Modifier.fillMaxWidth(), search = true, flat = true)
+        KavPart("lines.search", q, { org.json.JSONObject().put("query", q) }) {
+            Box(Modifier.fillMaxWidth().panel(K.rCard)) {
+                KavField(q, onQ, T("Line number or name", "מספר או שם קו"), Modifier.fillMaxWidth(), search = true, flat = true)
+            }
         }
         Spacer(Modifier.height(K.gap2))
-        Row(
-            Modifier
-                .bleed(K.gap4)
-                .horizontalScroll(rememberScrollState())
-                .padding(horizontal = K.gap4),
-            horizontalArrangement = Arrangement.spacedBy(K.gap2),
-        ) {
-            FILTERS.forEach { (label, t) -> Chip(filterLabel(label), types === t) { onTypes(t) } }
+        KavPart("lines.filters", types, { org.json.JSONObject().put("modes", org.json.JSONArray(types.toList())) }) {
+            Row(
+                Modifier
+                    .bleed(K.gap4)
+                    .horizontalScroll(rememberScrollState())
+                    .padding(horizontal = K.gap4),
+                horizontalArrangement = Arrangement.spacedBy(K.gap2),
+            ) {
+                FILTERS.forEach { (label, t) -> Chip(filterLabel(label), types === t) { onTypes(t) } }
+            }
         }
         Spacer(Modifier.height(K.gap3))
     }
@@ -272,7 +276,7 @@ private fun LineRowCard(model: KavModel, net: Net, row: LineRow, first: Boolean,
         Modifier
             .fillMaxWidth()
             .groupItem(first, last)
-            .clickable(role = Role.Button) { model.lineRoute = row.route }
+            .clickable(role = Role.Button) { if (!lineTaken(model, model.net?.rShort?.getOrNull(row.route), -1)) model.lineRoute = row.route }
             .padding(horizontal = K.gap4, vertical = K.gap3),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(K.gap3),
@@ -1060,7 +1064,7 @@ private fun ScheduleLines(model: KavModel, net: Net, state: ScheduleListState, l
     // As the week's list: the full list waits for Recent and Nearby.
     val listReady = leadReady || q.isNotBlank() || types.isNotEmpty()
     Column(Modifier.fillMaxSize()) {
-        ScreenHeader(T("Lines", "קווים"))
+        KavPart("lines.header", Unit, { org.json.JSONObject() }) { ScreenHeader(T("Lines", "קווים")) }
         Box(Modifier.fillMaxSize()) {
             LazyColumn(Modifier.fillMaxSize(), state = state.scroll, contentPadding = PaddingValues(
                 start = K.gap4, end = K.gap4, bottom = LocalBottomBarInset.current + K.gap4,
@@ -1483,6 +1487,9 @@ private fun LinePage(
             else -> line?.takeIf { it.from.isNotBlank() && it.to.isNotBlank() }?.let { twoEnds(providerEnd(it.from), providerEnd(it.to)) }
         }
         ScreenHeader(ends ?: (T("Line ", "קו ") + number), back = onBack)
+        // What the line's header part is told (ExtParts.kt): its number and operator.
+        KavPart("line.header", route to line, { org.json.JSONObject().put("number", if (route >= 0) net.rShort[route] else line?.number)
+            .put("operator", if (route >= 0) net.agencyOf(route) else line?.operator) }) {
         Row(
             Modifier.padding(horizontal = K.gap4).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -1531,6 +1538,7 @@ private fun LinePage(
                     floating = true, tint = if (saved) K.accentInk else K.textSecondary,
                 )
             }
+        }
         }
         AnimatedVisibility(
             all.size > 1,
@@ -1595,7 +1603,7 @@ private fun LinePage(
                             fontSize = 14.sp, color = K.accentInk,
                             modifier = Modifier.padding(horizontal = K.gap4).clickable(role = Role.Button) {
                                 val first = shown.first(); val last = shown.last()
-                                model.report = ReportFor(
+                                model.openReport(ReportFor(
                                     line = if (mode == Mode.TRAIN) "" else number,
                                     agency = if (mode == Mode.BUS) (if (route >= 0) net.agencyOf(route) else line?.operator.orEmpty()) else "",
                                     origin = first.name, destination = last.name,
@@ -1606,7 +1614,7 @@ private fun LinePage(
                                     direction = if (mode == Mode.BUS && route >= 0) ministryDirection(net.rLong[route]) else null,
                                     train = mode != Mode.BUS,
                                     trainType = if (rail) lightRailType(first.lat.takeIf { it.isFinite() }?.let { it to first.lon }) else "1",
-                                )
+                                ))
                             }.padding(vertical = K.gap2))
                         val chosen = keys.indexOf(open)
                         if (calls.size >= 2) LineRouteMap(
@@ -1917,7 +1925,12 @@ private fun ScheduleAtStop(
 
 // A line opened from elsewhere (a stop's board or a trip): the provider's when the timetable is a
 // provider's that lists it, else the week's. Opens the Lines tab.
+// A line's page opened by a tap: an extension holding "line.open" goes first (ext/Actions.kt).
 internal fun openTimetableLine(model: KavModel, route: Int, stop: Int) {
+    if (!lineTaken(model, model.net?.rShort?.getOrNull(route), stop)) openTimetableLineOwn(model, route, stop)
+}
+
+internal fun openTimetableLineOwn(model: KavModel, route: Int, stop: Int) {
     model.rememberReturn(uk.noammm.kav.Tab.Lines)
     model.scheduleLine = null
     model.lineFocusStop = stop; model.lineRoute = route; model.tab = uk.noammm.kav.Tab.Lines

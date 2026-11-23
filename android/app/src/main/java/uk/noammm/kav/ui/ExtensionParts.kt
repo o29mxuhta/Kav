@@ -54,6 +54,8 @@ import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material.icons.rounded.Tune
+import androidx.compose.material.icons.rounded.TouchApp
+import androidx.compose.material.icons.rounded.Build
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -446,6 +448,114 @@ private fun lineIcon(l: ExtUses.Line): ImageVector = when (l.what) {
     ExtUses.What.SLOT_TRIP -> Icons.Rounded.Timeline
     ExtUses.What.SLOT_STOP -> Icons.Rounded.Place
     ExtUses.What.ADDS -> addIcon(l.detail.first())
+    ExtUses.What.ACTIONS -> Icons.Rounded.TouchApp
+    ExtUses.What.PARTS -> Icons.Rounded.Dashboard
+    ExtUses.What.HOOKS -> Icons.Rounded.Build
+}
+
+// An action an extension takes over (ext/Actions.kt), as a few words.
+private fun actionWords(name: String) = when (name) {
+    "pay" -> T("paying", "תשלום")
+    "ticket.open" -> T("opening tickets", "פתיחת כרטיסים")
+    "stop.open" -> T("opening stops", "פתיחת תחנות")
+    "line.open" -> T("opening lines", "פתיחת קווים")
+    "trip.open" -> T("opening trips", "פתיחת נסיעות")
+    "trip.start" -> T("starting trips", "התחלת נסיעות")
+    "trip.end" -> T("ending trips", "סיום נסיעות")
+    "share" -> T("sharing trips", "שיתוף נסיעות")
+    "plan" -> T("trip searches", "חיפושי מסלולים")
+    "report" -> T("reports", "דיווחים")
+    "alert.open" -> T("service alerts", "הודעות שירות")
+    "taxi" -> T("taxis", "מוניות")
+    "street.open" -> "Street View"
+    "place.save" -> T("saving places", "שמירת מקומות")
+    "stop.save" -> T("saving stops", "שמירת תחנות")
+    "line.save" -> T("saving lines", "שמירת קווים")
+    "settings.open" -> T("opening Settings", "פתיחת ההגדרות")
+    "tab.open" -> T("switching tabs", "מעבר בין לשוניות")
+    "settings.page.open" -> T("opening Settings pages", "פתיחת עמודי הגדרות")
+    "pay.history.open" -> T("opening ride history", "פתיחת היסטוריית נסיעות")
+    "plan.stop" -> T("planning from or to a stop", "תכנון מתחנה או אליה")
+    "live.show" -> T("changing what Live shows", "בחירת מה להציג בזמן אמת")
+    "search.open" -> T("opening place search", "פתיחת חיפוש מקומות")
+    "results.place.pick" -> T("choosing places for trips", "בחירת מקומות לנסיעה")
+    "results.endpoints.swap" -> T("swapping start and destination", "החלפת מוצא ויעד")
+    "results.stop.remove" -> T("removing stops along a trip", "הסרת עצירות בדרך")
+    "results.stop.stay" -> T("setting time at a stop", "הגדרת זמן שהייה בעצירה")
+    "results.time.select" -> T("choosing when to travel", "בחירת מועד נסיעה")
+    "results.order.select" -> T("sorting routes", "מיון מסלולים")
+    "results.planner.select" -> T("choosing a trip planner", "בחירת מתכנן נסיעות")
+    "trip.track" -> T("following a ride's bus", "מעקב אחרי האוטובוס של נסיעה")
+    "nav.step" -> T("moving between a trip's steps", "מעבר בין שלבי הנסיעה")
+    "nav.board.select" -> T("choosing which bus to take", "בחירת האוטובוס לעלות עליו")
+    "nav.replan" -> T("finding a new route on the way", "חיפוש מסלול חדש בדרך")
+    "nav.replan.keep" -> T("keeping a route on the way", "המשך במסלול בדרך")
+    "nav.plan" -> T("showing the plan on the way", "הצגת המסלול בדרך")
+    "nav.exit" -> T("leaving a trip for Home", "יציאה מהנסיעה למסך הבית")
+    "share.send" -> T("sharing trips", "שיתוף נסיעות")
+    "pay.mode" -> T("turning paying on and off", "הפעלה וכיבוי של התשלום")
+    "pay.offer.hide" -> T("hiding the offer to pay", "הסתרת ההצעה לשלם")
+    "pay.place.open" -> T("opening ${PayApp.current.en}'s pages", "פתיחת עמודים ${PayApp.current.heIn}")
+    "pay.history.clear" -> T("clearing ride history", "מחיקת היסטוריית הנסיעות")
+    "ticket.ravpass.open" -> T("showing tickets in ${PayApp.current.label()}", "הצגת כרטיסים ${PayApp.current.heIn}")
+    else -> T.ltr(name)
+}
+
+// A part of Kav's screens (ext/Parts.kt), as a few words.
+private fun partWords(name: String) = when (name) {
+    "home.places" -> T("Home's places", "המקומות במסך הבית")
+    "home.journey" -> T("Home's trip under way", "הנסיעה הפעילה במסך הבית")
+    "home.suggestions" -> T("Home's suggestions", "ההצעות במסך הבית")
+    "home.latest" -> T("Home's latest route", "המסלול האחרון במסך הבית")
+    "home.pay" -> T("Home's pay card", "כרטיס התשלום במסך הבית")
+    "home.recent" -> T("Home's recent trips", "הנסיעות האחרונות במסך הבית")
+    "trip.header" -> T("a trip's header", "הכותרת של נסיעה")
+    "trip.map" -> T("a trip's map", "המפה של נסיעה")
+    "trip.summary" -> T("a trip's summary", "הסיכום של נסיעה")
+    "trip.timeline" -> T("a trip's steps", "השלבים של נסיעה")
+    "trip.ride" -> T("a trip's rides", "קטעי הנסיעה בתחבורה")
+    "trip.walk" -> T("a trip's walks", "קטעי ההליכה")
+    "results.route" -> T("trip results", "תוצאות החיפוש")
+    "stop.header" -> T("a stop's header", "הכותרת של תחנה")
+    "stop.board" -> T("stop boards", "לוחות תחנה")
+    "line.header" -> T("a line's header", "הכותרת של קו")
+    "settings.root" -> T("Settings", "ההגדרות")
+    "settings.page.header" -> T("Settings headers", "כותרות בהגדרות")
+    "settings.page.trips" -> T("trip settings", "הגדרות נסיעות")
+    "settings.page.paying" -> T("payment settings", "הגדרות תשלום")
+    "settings.page.live" -> T("live times and planner settings", "הגדרות זמני הגעה ומתכננים")
+    "settings.page.look" -> T("look and language settings", "הגדרות מראה ושפה")
+    "settings.page.map" -> T("map settings", "הגדרות מפה")
+    "settings.page.privacy" -> T("privacy and sharing settings", "הגדרות פרטיות ושיתוף")
+    "settings.page.extensions" -> T("extension settings", "הגדרות תוספים")
+    "settings.page.kav" -> T("Kav settings", "הגדרות Kav")
+    "pay.history.header" -> T("the ride history header", "כותרת היסטוריית הנסיעות")
+    "pay.history.summary" -> T("ride history totals", "סיכום היסטוריית הנסיעות")
+    "pay.history.empty" -> T("empty ride history", "היסטוריית נסיעות ריקה")
+    "pay.history.month" -> T("months in ride history", "חודשים בהיסטוריית הנסיעות")
+    "pay.history.ride" -> T("rides in ride history", "נסיעות בהיסטוריית הנסיעות")
+    "stops.header" -> T("the Stops tab header", "כותרת לשונית התחנות")
+    "stops.search" -> T("stop search", "חיפוש תחנות")
+    "lines.header" -> T("the Lines tab header", "כותרת לשונית הקווים")
+    "lines.search" -> T("line search", "חיפוש קווים")
+    "lines.filters" -> T("line filters", "מסנני קווים")
+    "live.header" -> T("the Live tab header", "כותרת לשונית זמן אמת")
+    "live.filters" -> T("Live filters", "מסנני זמן אמת")
+    "results.endpoints" -> T("the search's start and destination", "המוצא והיעד בחיפוש")
+    "results.options" -> T("trip search options", "אפשרויות חיפוש מסלולים")
+    "results.time.shift" -> T("earlier and later routes", "מסלולים מוקדמים ומאוחרים")
+    "results.planners" -> T("trip planner tabs", "לשוניות מתכנני הנסיעות")
+    "ticket.header" -> T("ticket headers", "כותרות כרטיסים")
+    "ticket.validity" -> T("ticket validity", "תוקף כרטיסים")
+    "ticket.ride" -> T("the ride on a ticket", "פרטי הנסיעה בכרטיס")
+    "nav.header" -> T("the top of a trip under way", "החלק העליון של נסיעה בדרך")
+    "nav.problem" -> T("problems on the way", "בעיות בדרך")
+    "nav.card" -> T("a trip's step cards", "כרטיסי השלבים של נסיעה")
+    "share.targets" -> T("ways to share a trip", "דרכים לשתף נסיעה")
+    "ticket.codes" -> T("ticket codes", "קודי כרטיסים")
+    "pay.setup" -> T("setting up paying", "הגדרת התשלום")
+    "tabbar" -> T("the tab bar", "סרגל הלשוניות")
+    else -> T.ltr(name)
 }
 
 private fun addIcon(a: String): ImageVector = when (a) {
@@ -487,6 +597,9 @@ internal fun lineWords(l: ExtUses.Line): String {
             "location" -> T("Uses your location", "משתמש במיקום שלכם")
             else -> T("Has settings", "כולל הגדרות")
         }
+        ExtUses.What.ACTIONS -> T("Takes over: ", "לוקח על עצמו: ") + l.detail.joinToString(list, transform = ::actionWords)
+        ExtUses.What.PARTS -> T("Changes parts of Kav's screens: ", "משנה חלקים במסכים של Kav: ") + l.detail.joinToString(list, transform = ::partWords)
+        ExtUses.What.HOOKS -> T("Changes how Kav itself works", "משנה את האופן שבו Kav עצמה פועלת")
     }
 }
 
@@ -520,8 +633,14 @@ internal fun listingWords(capabilities: List<String>, adds: List<String> = empty
             "slot.results" -> T("Results line", "שורה בתוצאות")
             "slot.trip" -> T("Trip page", "עמוד נסיעה")
             "slot.stop" -> T("Stop boards", "לוחות תחנה")
+            "action.pay" -> T("Paying", "תשלום")
+            uk.noammm.kav.ext.MethodHooks.CAPABILITY -> T("Changes Kav", "משנה את Kav")
             Capabilities.BOARD -> T("Timetables", "לוחות זמנים")
-            else -> kindWords(it)
+            else -> when {
+                it.startsWith("action.") -> actionWords(it.removePrefix("action.")).replaceFirstChar { c -> c.uppercase() }
+                it.startsWith("part.") -> partWords(it.removePrefix("part.")).replaceFirstChar { c -> c.uppercase() }
+                else -> kindWords(it)
+            }
         }
     } + listOfNotNull(
         if (tab) T("Tab", "לשונית") else null,
@@ -548,6 +667,8 @@ internal fun lineLabel(l: ExtUses.Line): String {
         ExtUses.What.SLOT_TRIP -> T("Part on a trip's page", "חלק בעמוד של נסיעה")
         ExtUses.What.SLOT_STOP -> T("Row on stop boards", "שורה בלוחות תחנה")
         ExtUses.What.ADDS -> addWord(l.detail.first())
+        ExtUses.What.ACTIONS -> T("Takes over actions", "לוקח על עצמו פעולות")
+        ExtUses.What.PARTS -> T("Changes screen parts", "משנה חלקי מסכים")
         else -> lineWords(l)
     }
 }

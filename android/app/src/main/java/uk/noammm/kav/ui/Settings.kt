@@ -152,7 +152,7 @@ fun SettingsScreen(model: KavModel, active: Boolean = true, onClose: () -> Unit)
         T("Paying", "תשלום"),
         when {
             PayMode.lost.isNotEmpty() -> T("Action required", "נדרשת פעולה")
-            Shown.payments -> T("With ${PayApp.current.label()}", "עם ${PayApp.current.he}")
+            Shown.payments -> uk.noammm.kav.ext.Actions.firstName("pay")?.let { T("With \u2068$it\u2069", "עם \u2068$it\u2069") } ?: T("With ${PayApp.current.label()}", "עם ${PayApp.current.he}")
             else -> T("Not set up", "לא מוגדר")
         },
         if (PayMode.lost.isNotEmpty()) K.problem else null,
@@ -330,18 +330,27 @@ fun SettingsScreen(model: KavModel, active: Boolean = true, onClose: () -> Unit)
                         Spacer(Modifier.height(K.gap5))
                     }
                 }
-                Column(Modifier.padding(horizontal = K.gap4), verticalArrangement = Arrangement.spacedBy(K.gap6)) {
-                    for (group in SETTINGS_GROUPS) PartGroup(group.mapNotNull { id -> parts.firstOrNull { it.id == id } }) { page = it }
+                KavPart("settings.root", Unit, { org.json.JSONObject() }) {
+                    Column(Modifier.padding(horizontal = K.gap4), verticalArrangement = Arrangement.spacedBy(K.gap6)) {
+                        for (group in SETTINGS_GROUPS) PartGroup(group.mapNotNull { id -> parts.firstOrNull { it.id == id } }) { id ->
+                            if (!uk.noammm.kav.ext.Actions.take(ctx, "settings.page.open") { org.json.JSONObject().put("page", id) }) page = id
+                        }
+                    }
                 }
             } else {
                 // Inside Extensions, the step the rider is on (a source, Sources), and on Sources its plus.
                 val headTitle = (if (open.id == "extensions") ExtUi.title else null) ?: open.title
                 val headBack = { backs?.onBackPressed() ?: run { page = null } }
                 val headAdd = if (open.id == "extensions") ExtUi.headerAdd else null
-                if (headAdd != null) ScreenHeader(headTitle, back = headBack) {
-                    KavIconButton(Icons.Rounded.Add, T("Add a source", "הוספת מקור"), headAdd)
-                } else ScreenHeader(headTitle, "", back = headBack)
-                Column(Modifier.padding(horizontal = K.gap1), content = open.content)
+                val about = { org.json.JSONObject().put("page", open.id).put("title", headTitle) }
+                KavPart("settings.page.header", open.id to headTitle, about) {
+                    if (headAdd != null) ScreenHeader(headTitle, back = headBack) {
+                        KavIconButton(Icons.Rounded.Add, T("Add a source", "הוספת מקור"), headAdd)
+                    } else ScreenHeader(headTitle, "", back = headBack)
+                }
+                Column(Modifier.padding(horizontal = K.gap1)) {
+                    KavPart("settings.page.${open.id}", open.id to headTitle, about, inset = K.gap3) { Column(content = open.content) }
+                }
             }
         }
     }

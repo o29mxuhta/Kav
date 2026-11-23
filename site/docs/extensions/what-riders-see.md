@@ -25,8 +25,7 @@ The first time, before any source, Kav shows "Before you add extensions": they a
 review them, they can do anything Kav can on the phone, and installing one is the rider's own call.
 
 After Add, every extension of the source shows in Settings › Extensions with its own switch, off until the rider
-switches it on. On, it runs at once. Each extension's page shows the same lines under "It can", with "By &lt;name>, a
-third-party extension, not made by Kav" where its parts show.
+switches it on. On, it runs at once. Each extension's page shows the same lines under "It can".
 
 ## Kav writes the lines, from your manifest
 
@@ -48,6 +47,9 @@ These are all the lines there are, in the order Kav lists them. The exact words,
 | **It can add a line to trip results** | it has a `slot.results` contribution | `slot.results` |
 | **It can add a part to a trip's page** | it has a `slot.trip` contribution | `slot.trip` |
 | **It can add a row to stop boards** | it has a `slot.stop` contribution | `slot.stop` |
+| **It takes over**, naming the actions: paying, opening stops, trip searches... | it has an `action.<name>` contribution (API 4) | `actions` |
+| **It changes parts of Kav's screens**, naming them: Home's pay card, a trip's rides... | it has a `part.<name>` contribution (API 4) | `parts` |
+| **It changes how Kav itself works** | it has a `hooks` contribution (API 4) | `hooks` |
 | **It sees the rider's trip searches** | it has any of the kinds above except `board.provide`: a stop board is not given trip searches | `searches` |
 | **It changes the rider's results**, saying which: walk times, which changes can be made, which routes show, their order, tags on routes | it has any route rule. A planner alone does not count | `results` |
 | **It keeps its own data on the phone** | it declares any `settings` | `data` |

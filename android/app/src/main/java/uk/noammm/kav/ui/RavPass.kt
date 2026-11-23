@@ -143,8 +143,28 @@ internal object RavPass {
         return try { ctx.startActivity(i); true } catch (_: ActivityNotFoundException) { false } catch (_: SecurityException) { false }
     }
 
-    // A Pay tap. A bus's, with a train entrance still open, asks first about the exit ticket (EntranceAsk).
+    // A Pay tap: every one comes here. An extension that takes over paying goes first (the action "pay"), told the ride,
+    // or {} for none ({"section"} for another section than the bus's); then Kav's own.
     fun open(ctx: Context, s: Section, ride: PayFor? = null) {
+        if (uk.noammm.kav.ext.Actions.take(ctx, "pay") { args(s, ride) }) return
+        own(ctx, s, ride)
+    }
+
+    fun args(s: Section, ride: PayFor?): org.json.JSONObject = ride?.ride?.let { runCatching { org.json.JSONObject(it) }.getOrNull() }
+        ?: org.json.JSONObject().apply { if (s != Section.BUS) put("section", key(s)) }
+
+    fun key(s: Section) = s.path ?: "any"
+
+    // The ride an extension is told: its section, line, mode, stops with their places, departure and trip.
+    fun ride(l: Transit.Leg, r: Transit.Resolved): org.json.JSONObject {
+        val j = uk.noammm.kav.ext.Pipeline.legJson(l, r)
+        return org.json.JSONObject().put("section", key(section(l, r))).put("line", j.opt("lineNumber")).put("mode", j.opt("mode"))
+            .put("from", j.opt("from")).put("to", j.opt("to")).put("dep", l.dep).put("trip", j.opt("trip"))
+    }
+
+    // Kav's own paying, also for an extension's kavAction: Rav-Pass. A bus's, with a train entrance still open, asks first
+    // about the exit ticket (EntranceAsk).
+    fun own(ctx: Context, s: Section, ride: PayFor? = null) {
         if (EntranceAsk.asks(ctx, s, ride)) return
         PayHandOff.pending = ride
         go(ctx, s)
@@ -172,6 +192,11 @@ internal object RavPass {
     val coupons = action("coupons")
     val support = action("customer_service")
     val ravKavTopUp = action("ravkav_topup")
+
+    // Rav-Pass's own places by the name its link ends with, as the "pay.place.open" action names them.
+    fun placeName(o: Open) = o.data?.substringAfterLast('/')
+    fun placeNamed(name: String) =
+        listOf(paymentCards, profile, discountProfile, chooseAccount, passengers, coupons, ravKavTopUp, support).firstOrNull { placeName(it) == name }
 
     // Opened by its link, it comes up inside Kav's task as the pay link does, with the button back to Kav over it (showing
     // no ride).
@@ -244,40 +269,45 @@ internal fun rememberRavPass(): Boolean {
 // since (Rav-Pass removed, a permission taken back), Action required and the setup popup; never turned on (a rider
 // updating to Kav 5), an offer to set it up, which its × hides for good (Settings' Paying stays the way back).
 @Composable
-internal fun PayCard(modifier: Modifier = Modifier) {
+internal fun PayCard(modifier: Modifier, showPay: Boolean) {
     val ctx = LocalContext.current
     val action = PayMode.lost.isNotEmpty()
     val offer = !Shown.payments && !action
     Column(modifier.fillMaxWidth().panel(K.rCard).animateContentSize(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f))) {
-        ListRow(
-            T("Pay for a ride", "תשלום על נסיעה"),
-            subtitle = when {
-                action -> T("Action required", "נדרשת פעולה")
-                offer -> T("Set up paying with ${PayApp.current.label()}", "הגדרת תשלום עם ${PayApp.current.he}")
-                else -> null
-            },
-            subtitleColor = if (action) K.problem else K.accentInk,
-            leading = { Icon(Icons.Rounded.QrCodeScanner, contentDescription = null, tint = K.textSecondary, modifier = Modifier.size(24.dp)) },
-            trailing = if (offer) { {
-                Box(Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
-                    .clickable(role = Role.Button, onClickLabel = T("Hide", "הסתרה")) { PayMode.dismissOffer(ctx) },
-                    contentAlignment = Alignment.Center) {
-                    Icon(Icons.Rounded.Close, contentDescription = T("Hide", "הסתרה"), tint = K.textTertiary, modifier = Modifier.size(20.dp))
-                }
-            } } else null,
-            chevron = !offer,
-            onClick = {
-                when {
-                    action -> PaySetup.show()
-                    offer -> PayMode.turnOn(ctx)
-                    else -> RavPass.open(ctx, RavPass.Section.BUS)
-                }
-            },
-        )
+        if (showPay) {
+            ListRow(
+                T("Pay for a ride", "תשלום על נסיעה"),
+                subtitle = when {
+                    action -> T("Action required", "נדרשת פעולה")
+                    offer -> T("Set up paying with ${PayApp.current.label()}", "הגדרת תשלום עם ${PayApp.current.he}")
+                    else -> null
+                },
+                subtitleColor = if (action) K.problem else K.accentInk,
+                leading = { Icon(Icons.Rounded.QrCodeScanner, contentDescription = null, tint = K.textSecondary, modifier = Modifier.size(24.dp)) },
+                trailing = if (offer) { {
+                    Box(Modifier.size(40.dp).clip(androidx.compose.foundation.shape.CircleShape)
+                        .clickable(role = Role.Button, onClickLabel = T("Hide", "הסתרה")) {
+                            if (!uk.noammm.kav.ext.Actions.take(ctx, "pay.offer.hide") { org.json.JSONObject() }) PayMode.dismissOffer(ctx)
+                        },
+                        contentAlignment = Alignment.Center) {
+                        Icon(Icons.Rounded.Close, contentDescription = T("Hide", "הסתרה"), tint = K.textTertiary, modifier = Modifier.size(20.dp))
+                    }
+                } } else null,
+                chevron = !offer,
+                onClick = {
+                    when {
+                        action -> PaySetup.show()
+                        offer -> payMode(ctx, true, "home")
+                        else -> RavPass.open(ctx, RavPass.Section.BUS)
+                    }
+                },
+            )
+        }
+
         // The tickets read from Rav-Pass, in the same card, as Kav's own tickets used to be, and the rides' summary.
         HomeTicketRows()
-        if (Shown.payments) RideSummary()
-        RavPassUpdatedLine(home = true)
+        if (Shown.payments || !showPay || TicketStore.history.any { it.key.startsWith("ext:") }) RideSummary()
+        if (showPay) RavPassUpdatedLine(home = true)
     }
 }
 
@@ -286,7 +316,7 @@ internal fun PayCard(modifier: Modifier = Modifier) {
 // way its mode is paid (the code on board a bus; at the station for train, light rail and the Carmelit), now opening
 // Rav-Pass at that section.
 @Composable
-internal fun RidePay(section: RavPass.Section, carmelit: Boolean, board: String?, line: String?, depMs: Long, off: String? = null) {
+internal fun RidePay(section: RavPass.Section, carmelit: Boolean, board: String?, line: String?, depMs: Long, off: String? = null, ride: String? = null) {
     if (!Shown.payments) return
     val ctx = LocalContext.current
     Spacer(Modifier.height(K.gap3))
@@ -294,7 +324,8 @@ internal fun RidePay(section: RavPass.Section, carmelit: Boolean, board: String?
         if (RideTicketRow(section, line, depMs)) return@Column
         Row(
             Modifier.fillMaxWidth()
-                .clickable(role = Role.Button, onClickLabel = T("Open the ${PayApp.current.label()} app", "מעבר לאפליקציית ${PayApp.current.he}")) { RavPass.open(ctx, section, PayFor(line, off)) }
+                .clickable(role = Role.Button, onClickLabel = T("Open the ${PayApp.current.label()} app", "מעבר לאפליקציית ${PayApp.current.he}")) { RavPass.open(ctx, section, PayFor(line, off, ride)) }
+
                 // The title's font keeps room above its capitals, so half a dp less on top centres the text you see.
                 .padding(start = K.gap3, end = K.gap3, top = 11.5.dp, bottom = 12.5.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -320,7 +351,7 @@ internal fun RidePay(section: RavPass.Section, carmelit: Boolean, board: String?
 @Composable
 internal fun RidePay(ride: Transit.Leg, r: Transit.Resolved) =
     RidePay(RavPass.section(ride, r), RavPass.carmelit(ride, r), r.stop(ride.fromStop)?.shown(), r.line(ride.lineId)?.number, ride.dep * 1000,
-        r.stopName(ride.toStop))
+        r.stopName(ride.toStop), remember(ride) { RavPass.ride(ride, r).toString() })
 
 // "Pay with Rav-Pass": one switch for paying with Rav-Pass and everything it needs, all or nothing (Noam, 19 Nov 2026):
 // Rav-Pass itself on the phone, showing over other apps, for the button back to Kav while paying (PayOverlay), and the ticket reader
@@ -340,8 +371,9 @@ internal object PayMode {
     fun missing(ctx: Context) = missing(android.os.Build.VERSION.SDK_INT, android.provider.Settings.canDrawOverlays(ctx), TicketView.enabled(ctx),
         RavPass.installed(ctx))
 
-    // On: turned on, with nothing missing. What everything about paying checks, in Kav and outside it (PayEntry).
-    fun on(ctx: Context) = Prefs.ravPass(ctx) && missing(ctx).isEmpty()
+    // On: turned on, with nothing missing, or an extension that takes over paying (the action "pay"), which needs none
+    // of it. What everything about paying checks, in Kav and outside it (PayEntry).
+    fun on(ctx: Context) = uk.noammm.kav.ext.Actions.held("pay") || Prefs.ravPass(ctx) && missing(ctx).isEmpty()
 
     // Turned on, and something gone since (Rav-Pass removed, the reader switched off in Android, a force stop, showing
     // over other apps taken back): said, never hidden silently.
@@ -367,9 +399,10 @@ internal object PayMode {
             Prefs.setRavPass(ctx, true); Prefs.setPayOverlay(ctx, true); Prefs.setTickets(ctx, true); Prefs.setRavPassOffer(ctx, false)
         }
         val chosen = Prefs.ravPass(ctx)
-        Shown.payments = chosen && missing.isEmpty()
-        lost = if (chosen) missing else emptyList()
-        offer = Prefs.ravPassOffer(ctx) && !chosen
+        val extension = uk.noammm.kav.ext.Actions.held("pay")
+        Shown.payments = extension || chosen && missing.isEmpty()
+        lost = if (chosen && !extension) missing else emptyList()
+        offer = Prefs.ravPassOffer(ctx) && !chosen && !extension
     }
 
     // The switch turned on, or Home's offer: on at once when nothing is missing, else the setup popup (PaySetup).
@@ -407,13 +440,19 @@ internal fun PayModeSwitch() {
                 subtitleMaxLines = 2, subtitleColor = if (action) K.problem else null) { want ->
                 when {
                     action -> PaySetup.show(offerOff = true)
-                    want -> PayMode.turnOn(ctx)
-                    else -> PayOffAsk.open = true
+                    else -> payMode(ctx, want, "settings")
                 }
             }
         }
     }
 }
+
+// Paying turned on or off by the rider, by name ("pay.mode"): on at once or through setup, off only once they agree.
+internal fun payMode(ctx: Context, on: Boolean, from: String) {
+    if (!uk.noammm.kav.ext.Actions.take(ctx, "pay.mode") { org.json.JSONObject().put("on", on).put("from", from) }) payModeOwn(ctx, on)
+}
+
+internal fun payModeOwn(ctx: Context, on: Boolean) { if (on) PayMode.turnOn(ctx) else PayOffAsk.open = true }
 
 // Turning paying off deletes what Kav kept: asked once, from the switch and from the setup popup alike, over everything
 // (MainActivity hosts it).
@@ -456,10 +495,13 @@ internal fun PayingSetup() {
 @Composable
 internal fun PayingSettings() {
     val ctx = LocalContext.current
+    // An extension that takes over paying needs none of Rav-Pass's setup: its own settings are on its page.
+    val extension = uk.noammm.kav.ext.Actions.firstName("pay")
+    if (extension != null) ListGroup { row { ListRow(T("With \u2068$extension\u2069", "עם \u2068$extension\u2069"), chevron = false) } }
     // Which app paying goes through, first: the switch below and the setup popup both follow this choice, so it shows
     // before paying is set up at all (otherwise a rider who wants egg would have to set Rav-Pass up just to switch).
-    PayAppChoice()
-    PayModeSwitch()
+    else { PayAppChoice(); PayModeSwitch() }
+
     if (!Shown.payments) return
     SectionHeader(PayApp.current.label())
     PlaceGroup(listOf(
@@ -479,19 +521,23 @@ internal fun PayingSettings() {
     ))
     SectionHeader(T("In Kav", "ב-Kav"))
     var clearing by remember { mutableStateOf(false) }
+    // Kav's own for "pay.history.clear": the question, while this page is open.
+    SideEffect { uk.noammm.kav.ext.Actions.own("pay.history.clear") { _, _ -> if (TicketStore.history.isNotEmpty()) clearing = true } }
     val live = liveTickets()
     ListGroup {
         if (TicketView.supported()) row {
             ListRow(T("Ride history", "היסטוריית נסיעות"),
                 subtitle = TicketStore.history.size.takeIf { it > 0 }?.let { T.count(it, "1 ride", "נסיעה אחת", "rides", "נסיעות") },
                 leading = { Icon(Icons.Rounded.History, contentDescription = null, tint = K.textSecondary, modifier = Modifier.size(22.dp)) },
-                onClick = { PayHistory.open = true })
+                onClick = { PayHistory.request("settings") })
         }
         if (TicketView.supported() && live.isNotEmpty()) row { LiveTicketsRow() }
         if (TicketStore.history.isNotEmpty()) row {
             ListRow(T("Clear history", "מחיקת ההיסטוריה"), titleColor = K.critical,
                 leading = { Icon(Icons.Rounded.DeleteOutline, contentDescription = null, tint = K.critical, modifier = Modifier.size(22.dp)) },
-                onClick = { clearing = true }, chevron = false)
+                onClick = {
+                    if (!uk.noammm.kav.ext.Actions.take(ctx, "pay.history.clear") { org.json.JSONObject().put("rides", TicketStore.history.size) }) clearing = true
+                }, chevron = false)
         }
     }
     RavPassUpdatedLine(home = false)
@@ -546,6 +592,14 @@ private fun PayAppChoice() {
 }
 
 // The chosen app's own places, each a row that opens it there, with the mark for opening outside Kav.
+
+// A Rav-Pass place opened by a tap, by name ("pay.place.open").
+private fun openPlace(ctx: Context, o: RavPass.Open) {
+    if (!uk.noammm.kav.ext.Actions.take(ctx, "pay.place.open") { org.json.JSONObject().put("place", RavPass.placeName(o)) }) RavPass.place(ctx, o)
+}
+
+// Rav-Pass's own places, each a row that opens it there, with the mark for opening outside Kav.
+
 private data class Place(val label: String, val icon: androidx.compose.ui.graphics.vector.ImageVector, val open: RavPass.Open)
 
 @Composable
@@ -556,7 +610,7 @@ private fun PlaceGroup(places: List<Place>) {
             ListRow(label,
                 leading = { Icon(icon, contentDescription = null, tint = K.textSecondary, modifier = Modifier.size(22.dp)) },
                 trailing = { Icon(Icons.AutoMirrored.Rounded.OpenInNew, contentDescription = null, tint = K.textTertiary, modifier = Modifier.size(18.dp)) },
-                onClick = { RavPass.place(ctx, o) }, chevron = false)
+                onClick = { openPlace(ctx, o) }, chevron = false)
         }
     }
 }

@@ -164,6 +164,11 @@ internal fun validity(t: Ticket, now: Long, short: Boolean = false): Pair<String
     }
 }
 
+// A ticket shown in Rav-Pass, on its section, for an inspector.
+internal fun openInRavPass(ctx: android.content.Context, t: Ticket) {
+    TicketStore.showAsked = System.currentTimeMillis(); RavPass.go(ctx, sectionOf(t))
+}
+
 private fun sectionOf(t: Ticket) = when (t.kind) {
     TicketScreens.Kind.BUS -> RavPass.Section.BUS
     TicketScreens.Kind.LIGHT_RAIL -> RavPass.Section.LIGHT_RAIL
@@ -287,7 +292,9 @@ internal fun TicketScreen(t: Ticket, model: uk.noammm.kav.KavModel?, onClose: ()
     val pager = androidx.compose.foundation.pager.rememberPagerState { codes.size.coerceAtLeast(1) }
     val (net, ride) = rememberRide(t)
     Column(Modifier.fillMaxSize().background(K.bg).statusBarsPadding()) {
-        ScreenHeader(kindName(t.kind), back = onClose)
+        val about = { org.json.JSONObject().put("key", t.key).put("kind", t.kind.name)
+            .put("line", t.line).put("from", t.from).put("to", t.to).put("validUntil", t.validUntil) }
+        KavPart("ticket.header", t, about) { ScreenHeader(kindName(t.kind), back = onClose) }
         Column(
             Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = K.gap4)
                 .padding(top = K.gap2, bottom = K.gap4 + LocalBottomBarInset.current).animateContentSize(),
@@ -295,41 +302,47 @@ internal fun TicketScreen(t: Ticket, model: uk.noammm.kav.KavModel?, onClose: ()
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             val gate = t.kind != TicketScreens.Kind.BUS
-            if (codes.isEmpty()) Box(Modifier.fillMaxWidth().heightIn(min = 120.dp).panel(K.rTile).padding(K.gap4), contentAlignment = Alignment.Center) {
+            // An extension's ticket without codes has nothing to show here.
+            if (codes.isEmpty() && uk.noammm.kav.ExtTickets.mine(t)) Unit
+            else if (codes.isEmpty()) Box(Modifier.fillMaxWidth().heightIn(min = 120.dp).panel(K.rTile).padding(K.gap4), contentAlignment = Alignment.Center) {
                 Text(T("The ticket for an inspector is in ${PayApp.current.label()}: open it there, under \"Active travel ticket for inspection\". Once you have, Kav shows it here too.",
                     "הכרטיס לביקורת נמצא ${PayApp.current.heIn}: פתחו אותו שם, תחת \"כרטיס נסיעה פעילה לביקורת\". אחרי שתפתחו אותו, Kav תציג אותו גם כאן."),
                     style = K.type.body, color = K.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-            } else Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(K.gap2)) {
-                androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxWidth()) { i ->
-                    val p = codes[i]
-                    Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
-                        if (!TicketView.drawable(p.format)) Box(Modifier.fillMaxWidth().heightIn(min = 120.dp).panel(K.rTile).padding(K.gap4), contentAlignment = Alignment.Center) {
-                            Text(T("Kav can't draw this code exactly. Show it in ${PayApp.current.label()}.", "Kav לא יכולה להציג את הקוד הזה בדיוק. הציגו אותו ${PayApp.current.heIn}."),
-                                style = K.type.body, color = K.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+            } else KavPart("ticket.codes", t, { about().put("code", pager.currentPage).put("codes", codes.size) }) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(K.gap2)) {
+                    androidx.compose.foundation.pager.HorizontalPager(pager, Modifier.fillMaxWidth()) { i ->
+                        val p = codes[i]
+                        Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                            if (!TicketView.drawable(p.format)) Box(Modifier.fillMaxWidth().heightIn(min = 120.dp).panel(K.rTile).padding(K.gap4), contentAlignment = Alignment.Center) {
+                                Text(T("Kav can't draw this code exactly. Show it in ${PayApp.current.label()}.", "Kav לא יכולה להציג את הקוד הזה בדיוק. הציגו אותו ${PayApp.current.heIn}."),
+                                    style = K.type.body, color = K.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                            }
+                            // A station's gate reads a code the size Rav-Pass shows a train's at, 180 dp with a white border.
+                            else if (gate) Box(Modifier.size(180.dp).clip(RoundedCornerShape(K.rTile)).background(Color.White).padding(10.dp)) {
+                                Code(p.code, p.format, Modifier.fillMaxSize())
+                            }
+                            // A bus's, big enough for any reader and small enough to leave the ticket's facts on the screen.
+                            else Code(p.code, p.format, Modifier.widthIn(max = 280.dp).fillMaxWidth().clip(RoundedCornerShape(K.rCard)))
+
                         }
-                        // A station's gate reads a code the size Rav-Pass shows a train's at, 180 dp with a white border.
-                        else if (gate) Box(Modifier.size(180.dp).clip(RoundedCornerShape(K.rTile)).background(Color.White).padding(10.dp)) {
-                            Code(p.code, p.format, Modifier.fillMaxSize())
-                        }
-                        // A bus's, big enough for any reader and small enough to leave the ticket's facts on the screen.
-                        else Code(p.code, p.format, Modifier.widthIn(max = 280.dp).fillMaxWidth().clip(RoundedCornerShape(K.rCard)))
                     }
-                }
-                // Under the code, what Rav-Pass prints under it: whose it is in a group, and the ticket's number.
-                listOfNotNull(
-                    if (codes.size > 1) "${pager.currentPage + 1} / ${codes.size}" else null,
-                    codes.getOrNull(pager.currentPage)?.name,
-                    t.number,
-                ).takeIf { it.isNotEmpty() }?.let {
-                    Text(it.joinToString("  ·  "), style = K.type.subhead.tabular, color = K.textTertiary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    // Under the code, what Rav-Pass prints under it: whose it is in a group, and the ticket's number.
+                    listOfNotNull(
+                        if (codes.size > 1) "${pager.currentPage + 1} / ${codes.size}" else null,
+                        codes.getOrNull(pager.currentPage)?.name,
+                        t.number,
+                    ).takeIf { it.isNotEmpty() }?.let {
+                        Text(it.joinToString("  ·  "), style = K.type.subhead.tabular, color = K.textTertiary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    }
                 }
             }
             Column(Modifier.fillMaxWidth().panel(K.rCard)) {
-                TicketValidity(t, now)
-                TicketRideRows(t, net, ride, model, onClose)
+                KavPart("ticket.validity", t, about) { TicketValidity(t, now) }
+                TicketRideRows(t, net, ride, model, onClose, about)
             }
-            KavButton(T("Open in ${PayApp.current.label()}", "פתיחה ${PayApp.current.heIn}"), onClick = { TicketStore.showAsked = System.currentTimeMillis(); RavPass.go(ctx, sectionOf(t)) },
-                style = ButtonStyle.Secondary, icon = androidx.compose.material.icons.Icons.Rounded.OpenInNew, modifier = Modifier.fillMaxWidth())
+            if (!uk.noammm.kav.ExtTickets.mine(t)) KavButton(T("Open in ${PayApp.current.label()}", "פתיחה ${PayApp.current.heIn}"), onClick = {
+                if (!uk.noammm.kav.ext.Actions.take(ctx, "ticket.ravpass.open") { about() }) openInRavPass(ctx, t)
+            }, style = ButtonStyle.Secondary, icon = androidx.compose.material.icons.Icons.Rounded.OpenInNew, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -343,7 +356,8 @@ private fun TicketValidity(t: Ticket, now: Long) {
     Column(Modifier.fillMaxWidth().padding(start = K.gap4, end = K.gap2, top = K.gap3, bottom = K.gap3)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             LiveText(valid, Modifier.weight(1f, fill = false), style = K.type.title.tabular, color = if (fresh) good else K.dim)
-            if (t.validUntil != null) Box(
+            // An extension's ticket ends when it says: no estimate of Kav's to explain.
+            if (t.validUntil != null && !uk.noammm.kav.ExtTickets.mine(t)) Box(
                 Modifier.padding(start = K.gap1).size(40.dp).clip(CircleShape)
                     .clickable(role = androidx.compose.ui.semantics.Role.Button, onClickLabel = T("Kav's estimate", "הערכה של Kav")) { why = !why },
                 contentAlignment = Alignment.Center,
@@ -374,32 +388,35 @@ private fun TicketValidity(t: Ticket, now: Long) {
 // The ride: the line's plate, then the stop it was boarded at and the stop it goes to, down a short rail. The plate opens
 // the line's page and each stop its board, where Kav found them in its timetable; the rest is plain text.
 @Composable
-private fun TicketRideRows(t: Ticket, net: Net?, ride: TicketRide?, model: uk.noammm.kav.KavModel?, onClose: () -> Unit) {
+private fun TicketRideRows(t: Ticket, net: Net?, ride: TicketRide?, model: uk.noammm.kav.KavModel?, onClose: () -> Unit,
+    about: () -> org.json.JSONObject) {
     val from = stopName(net, ride?.from ?: -1, t.from)
     val to = stopName(net, ride?.to ?: -1, t.to)
     if (from == null && to == null && t.line == null) return
     Separator()
-    val m = model?.takeIf { net != null && ride != null }
-    Row(Modifier.fillMaxWidth().padding(K.gap2), verticalAlignment = Alignment.Top) {
-        val line = m?.takeIf { ride!!.route >= 0 }?.let { mm ->
-            {
-                openTimetableLine(mm, ride!!.route, ride.from.takeIf { it >= 0 } ?: ride.to)
-                onClose()
+    KavPart("ticket.ride", t, about) {
+        val m = model?.takeIf { net != null && ride != null }
+        Row(Modifier.fillMaxWidth().padding(K.gap2), verticalAlignment = Alignment.Top) {
+            val line = m?.takeIf { ride!!.route >= 0 }?.let { mm ->
+                {
+                    openTimetableLine(mm, ride!!.route, ride.from.takeIf { it >= 0 } ?: ride.to)
+                    onClose()
+                }
             }
-        }
-        Box(
-            Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(K.rBadge + 4.dp))
-                .then(if (line != null) Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button,
-                    onClickLabel = T("Open the line", "פתיחת הקו"), onClick = line) else Modifier)
-                .padding(horizontal = K.gap2),
-            contentAlignment = Alignment.Center,
-        ) { TicketBadge(t, net, ride) }
-        Column(Modifier.weight(1f)) {
-            val stops = listOfNotNull(from?.let { it to (ride?.from ?: -1) }, to?.let { it to (ride?.to ?: -1) })
-            stops.forEachIndexed { i, (name, stop) ->
-                RideStop(name, first = i == 0, last = i == stops.lastIndex,
-                    said = if (stops.size == 2 && i == 0 || stops.size == 1 && from != null) T("Boarded at $name", "עלייה ב$name") else T("To $name", "אל $name"),
-                    onClick = m?.takeIf { stop >= 0 }?.let { mm -> { mm.openStation(stop); onClose() } })
+            Box(
+                Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(K.rBadge + 4.dp))
+                    .then(if (line != null) Modifier.clickable(role = androidx.compose.ui.semantics.Role.Button,
+                        onClickLabel = T("Open the line", "פתיחת הקו"), onClick = line) else Modifier)
+                    .padding(horizontal = K.gap2),
+                contentAlignment = Alignment.Center,
+            ) { TicketBadge(t, net, ride) }
+            Column(Modifier.weight(1f)) {
+                val stops = listOfNotNull(from?.let { it to (ride?.from ?: -1) }, to?.let { it to (ride?.to ?: -1) })
+                stops.forEachIndexed { i, (name, stop) ->
+                    RideStop(name, first = i == 0, last = i == stops.lastIndex,
+                        said = if (stops.size == 2 && i == 0 || stops.size == 1 && from != null) T("Boarded at $name", "עלייה ב$name") else T("To $name", "אל $name"),
+                        onClick = m?.takeIf { stop >= 0 }?.let { mm -> { mm.openStation(stop); onClose() } })
+                }
             }
         }
     }
@@ -460,7 +477,7 @@ private fun Code(content: String, format: String, modifier: Modifier = Modifier)
 internal fun RideTicketRow(section: RavPass.Section, line: String?, depMs: Long): Boolean {
     if (!TicketView.supported()) return false
     val t = liveTickets().filter { TicketView.matches(it, section, line, depMs) }.maxByOrNull { it.readAt } ?: return false
-    TicketRow(t, inset = K.gap3) { TicketStore.opened = t.key }
+    TicketRow(t, inset = K.gap3) { openTicket(null, t.key) }
     return true
 }
 
@@ -471,7 +488,7 @@ internal fun HomeTicketRows() {
     val live = liveTickets()
     for (t in live.sortedByDescending { it.readAt }) {
         Separator()
-        TicketRow(t) { TicketStore.opened = t.key }
+        TicketRow(t) { openTicket(null, t.key) }
     }
 }
 
