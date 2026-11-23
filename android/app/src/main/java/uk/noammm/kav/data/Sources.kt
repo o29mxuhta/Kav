@@ -19,11 +19,14 @@ enum class Source(val key: String) {
         // The same for live times: null too for a choice that gives none.
         fun storedLive(key: String?): Source? = stored(key)?.takeIf { it.live }
 
-        // Each choice's options, in the order Settings offers them.
-        val LIVE = listOf(KAV, OWN)
-        val PLANNING = listOf(KAV, OWN)
-        val TIMETABLE = listOf(KAV, OWN)
-        val ALERTS = listOf(KAV, GOOGLE, OWN)
+        // Each choice's options, in the order Settings offers them. A build without Kav's key (a fork) can never
+        // reach Kav's server, so it isn't offered: the choices left are the rider's own server (and Google, for alerts).
+        private fun offered(sources: List<Source>) =
+            if (uk.noammm.kav.BuildConfig.KAV_LIVE_KEY.isEmpty()) sources - KAV else sources
+        val LIVE get() = offered(listOf(KAV, OWN))
+        val PLANNING get() = offered(listOf(KAV, OWN))
+        val TIMETABLE get() = offered(listOf(KAV, OWN))
+        val ALERTS get() = offered(listOf(KAV, GOOGLE, OWN))
     }
 }
 

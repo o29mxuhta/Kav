@@ -58,7 +58,8 @@ object RideAlerts {
     var enabled by mutableStateOf(false)
     var picked by mutableStateOf(emptyMap<String, Source>())
     var source: Source
-        get() = picked[uk.noammm.kav.ui.T.lang.code] ?: Source.KAV
+        get() = picked[uk.noammm.kav.ui.T.lang.code]
+            ?: (if (uk.noammm.kav.BuildConfig.KAV_LIVE_KEY.isEmpty()) Source.GOOGLE else Source.KAV)
         set(s) { picked = picked + (uk.noammm.kav.ui.T.lang.code to s) }
     // The notices' language (Prefs.alertLanguage): "auto" Kav's own, "en" or "he".
     var language by mutableStateOf("auto")

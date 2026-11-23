@@ -15,7 +15,11 @@ import java.net.URL
 object Updates {
     const val OWNER = "ImNoammm"
     const val REPO = "kav"
-    const val PAGE = "https://github.com/$OWNER/$REPO/releases"
+    // App updates come from this fork's own releases: the official ones won't install over a fork build's signature.
+    // OWNER/REPO stay upstream's for the timetable, which the fork doesn't publish.
+    const val UPDATE_OWNER = "o29mxuhta"
+    const val UPDATE_REPO = "Kav"
+    const val PAGE = "https://github.com/$UPDATE_OWNER/$UPDATE_REPO/releases"
 
     class Release(
         val version: String,
@@ -30,7 +34,9 @@ object Updates {
         runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "0"
 
     fun latest(): Release {
-        val c = (RiderProxy.open(URL("https://api.github.com/repos/$OWNER/$REPO/releases/latest")) as HttpURLConnection).apply {
+        // The list, not /latest: this fork's builds ship as prereleases, which /latest skips. The newest one whose
+        // tag is a version ("v5.1-fork.8") wins; tags of another shape ("egg-debug-...") aren't updates.
+        val c = (RiderProxy.open(URL("https://api.github.com/repos/$UPDATE_OWNER/$UPDATE_REPO/releases?per_page=10")) as HttpURLConnection).apply {
             connectTimeout = 10_000; readTimeout = 15_000
             setRequestProperty("Accept", "application/vnd.github+json")
             setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
@@ -38,7 +44,15 @@ object Updates {
         }
         val code = c.responseCode
         if (code != 200) throw RuntimeException("GitHub HTTP $code")
-        val o = JSONObject(c.inputStream.use { String(it.readBytes(), Charsets.UTF_8) })
+        val list = org.json.JSONArray(c.inputStream.use { String(it.readBytes(), Charsets.UTF_8) })
+        var o: JSONObject? = null
+        for (i in 0 until list.length()) {
+            val r = list.optJSONObject(i) ?: continue
+            if (r.optBoolean("draft")) continue
+            if (!r.optString("tag_name").matches(Regex("^v?\\d+\\.\\d+.*"))) continue
+            o = r; break
+        }
+        if (o == null) throw RuntimeException("no versioned release")
         val assets = o.optJSONArray("assets")
         var apk: JSONObject? = null
         for (i in 0 until (assets?.length() ?: 0)) {
