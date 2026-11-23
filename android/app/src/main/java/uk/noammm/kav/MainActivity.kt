@@ -1926,7 +1926,13 @@ object Prefs {
     const val CROWD_GOOGLE = "google"
     const val CROWD_OFF = "off"
     val CROWDS = listOf(CROWD_KAV, CROWD_GOOGLE, CROWD_OFF)
-    internal fun crowdOf(stored: String?): String = stored?.takeIf { it in CROWDS } ?: CROWD_KAV
+    // A build without Kav's key has no Kav server to count taps on: Kav's meter is never one of its choices,
+    // not by default and not from a stored or restored choice, and Google's is the default instead.
+    internal fun crowdOf(stored: String?): String {
+        val c = stored?.takeIf { it in CROWDS }
+        if (BuildConfig.KAV_LIVE_KEY.isEmpty()) return c?.takeIf { it != CROWD_KAV } ?: CROWD_GOOGLE
+        return c ?: CROWD_KAV
+    }
     internal fun crowdFromGoogle(on: Boolean): String = if (on) CROWD_GOOGLE else CROWD_OFF
     fun crowdSource(ctx: Context): String = crowdOf(store(ctx).getString("crowdSource", null))
     fun setCrowdSource(ctx: Context, c: String) = store(ctx).edit().putString("crowdSource", c).apply()

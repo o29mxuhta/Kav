@@ -1049,10 +1049,14 @@ internal fun CrowdChoice() {
         "How busy the next bus usually is at that hour, on trips, in navigation, on a line's page and on a bus's card. Kav's compares the hour with the line's own hours, from the Ministry of Transport's count of Rav-Kav taps: taps are boardings, so it never says how full a bus is, and it has nothing for trains. Google's is Google Maps' prediction.",
         "כמה עמוס בדרך כלל האוטובוס הבא בשעה הזו, בנסיעות, בניווט, בדף של קו ובכרטיס של אוטובוס. של Kav משווה את השעה לשעות של הקו עצמו, לפי ספירת תיקופי הרב-קו של משרד התחבורה: תיקופים הם עליות, ולכן הוא לא אומר כמה מלא האוטובוס, ואין לו נתונים לרכבות. של Google הוא התחזית של Google Maps.",
     ) + " " + said)
+    // A keyless build has no Kav server for Kav's meter: it isn't offered (the stored choice is already Google's
+    // or Off then: Prefs.crowdOf).
+    val crowds = if (uk.noammm.kav.BuildConfig.KAV_LIVE_KEY.isEmpty()) Prefs.CROWDS - Prefs.CROWD_KAV else Prefs.CROWDS
     KavSegmented(
-        listOf("Kav", "Google", T("Off", "כבוי")), Prefs.CROWDS.indexOf(crowd),
+        crowds.map { when (it) { Prefs.CROWD_KAV -> "Kav"; Prefs.CROWD_GOOGLE -> "Google"; else -> T("Off", "כבוי") } },
+        crowds.indexOf(crowd),
         { i ->
-            crowd = Prefs.CROWDS[i]
+            crowd = crowds[i]
             Prefs.setCrowdSource(ctx, crowd)
             GoogleCrowd.enabled = crowd == Prefs.CROWD_GOOGLE
             uk.noammm.kav.data.KavCrowd.enabled = crowd == Prefs.CROWD_KAV
