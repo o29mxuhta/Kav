@@ -456,9 +456,10 @@ internal fun PayingSetup() {
 @Composable
 internal fun PayingSettings() {
     val ctx = LocalContext.current
+    // Which app paying goes through, first: the switch below and the setup popup both follow this choice, so it shows
+    // before paying is set up at all (otherwise a rider who wants egg would have to set Rav-Pass up just to switch).
+    PayAppChoice()
     PayModeSwitch()
-    // Which app paying goes through, while paying is on (or was on and lost a piece: the way back is here too).
-    if (Shown.payments || PayMode.lost.isNotEmpty()) PayAppChoice()
     if (!Shown.payments) return
     SectionHeader(PayApp.current.label())
     PlaceGroup(listOf(
