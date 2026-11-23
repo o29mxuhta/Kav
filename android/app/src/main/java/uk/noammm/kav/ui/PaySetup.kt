@@ -119,6 +119,9 @@ internal fun PaySetupHost() {
             Spacer(Modifier.height(K.gap2))
             RavPassLogo()
             Spacer(Modifier.height(K.gap4))
+            // Which app this setup is for, here too: switching swaps the logo, the store page and what the phone is
+            // checked for (rememberRavPass re-reads), and with nothing missing the flow finishes by itself.
+            if (page != Page.DONE) PayAppChoice()
             AnimatedContent(
                 page,
                 transitionSpec = {
@@ -187,7 +190,7 @@ private fun Title(text: String) = Text(text, style = K.type.title, color = K.tex
 @Composable
 private fun GetRavPass() {
     val ctx = LocalContext.current
-    val store = remember { RavPass.store(ctx) }
+    val store = remember(PayApp.current) { RavPass.store(ctx) }
     // That store's own icon, as it is on the phone.
     val icon = remember(store) {
         store.pkg?.let { runCatching { ctx.packageManager.getApplicationIcon(it).toBitmap(96, 96).asImageBitmap() }.getOrNull() }

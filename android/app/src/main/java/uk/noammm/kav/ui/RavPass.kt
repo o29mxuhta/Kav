@@ -247,7 +247,8 @@ internal object RavPass {
 @Composable
 internal fun rememberRavPass(): Boolean {
     val ctx = LocalContext.current
-    var installed by remember { mutableStateOf(RavPass.installed(ctx)) }
+    // Keyed on the chosen app too: switching it in Settings or in the setup popup re-checks the phone at once.
+    var installed by remember(PayApp.current) { mutableStateOf(RavPass.installed(ctx)) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { installed = RavPass.installed(ctx) } }
     DisposableEffect(ctx) {
@@ -561,7 +562,7 @@ private fun PageSheet(onDismiss: () -> Unit, content: @Composable ColumnScope.(c
 // keeps the permissions (they are Kav's own) and re-checks the phone: an app that isn't installed is the setup popup's
 // first step. The tickets and ride history already read stay.
 @Composable
-private fun PayAppChoice() {
+internal fun PayAppChoice() {
     val ctx = LocalContext.current
     var open by remember { mutableStateOf(false) }
     ListGroup {
