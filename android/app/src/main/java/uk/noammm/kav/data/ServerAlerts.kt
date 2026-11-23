@@ -31,7 +31,7 @@ object ServerAlerts {
     // The server the choice asks: Kav's, or the rider's own once it's set up (none until then).
     private fun server(): String? = when (RideAlerts.source) {
         Source.OWN -> KavLive.ownServer.ifEmpty { null }
-        else -> KavLive.KAV_SERVER
+        else -> KavLive.kavServer().ifEmpty { null }
     }
 
     private fun lang() = if (RideAlerts.english()) "en" else "he"

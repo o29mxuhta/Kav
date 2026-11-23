@@ -15,7 +15,9 @@ enum class Source(val key: String) {
     companion object {
         fun of(key: String?): Source? = entries.firstOrNull { it.key == key }
         // A stored choice: one this Kav no longer has is Kav's own from now on; null for none stored.
-        fun stored(key: String?): Source? = of(key) ?: key?.takeIf { it.isNotEmpty() }?.let { KAV }
+        // A stored choice of Kav's server is a choice of nothing on a keyless build: the rider's own, unset.
+        fun stored(key: String?): Source? = (of(key) ?: key?.takeIf { it.isNotEmpty() }?.let { KAV })
+            ?.let { if (it == KAV && uk.noammm.kav.BuildConfig.KAV_LIVE_KEY.isEmpty()) OWN else it }
         // The same for live times: null too for a choice that gives none.
         fun storedLive(key: String?): Source? = stored(key)?.takeIf { it.live }
 
@@ -35,6 +37,8 @@ internal object Sources {
     // Kav's), and Kav's planner, which planned on that same server, only with live times from it too. Whatever they left
     // to a provider this Kav no longer has is Kav's server's now, as is a new rider's, who has neither switch yet.
     fun fromOld(liveFromKav: Boolean, planWithKav: Boolean, ownSet: Boolean): Pair<Source, Source> {
+        // A keyless build has no Kav server to fall back on: everything waits for the rider's own.
+        if (uk.noammm.kav.BuildConfig.KAV_LIVE_KEY.isEmpty()) return Source.OWN to Source.OWN
         val server = if (ownSet) Source.OWN else Source.KAV
         return (if (liveFromKav) server else Source.KAV) to (if (liveFromKav && planWithKav) server else Source.KAV)
     }
@@ -73,11 +77,11 @@ internal object Sources {
     // The server new share links are made on, a choice of its own: Kav's or the rider's own. Not picked yet, as before it
     // was a choice: the rider's own when live times or trips come from it, else Kav's. Own picked with none set up: Kav's.
     fun shareOn(picked: Source?, live: Source, plan: Source, own: String): String = when {
-        own.isEmpty() -> KavLive.KAV_SERVER
+        own.isEmpty() -> KavLive.kavServer()
         picked == Source.OWN -> own
-        picked == Source.KAV -> KavLive.KAV_SERVER
+        picked == Source.KAV -> KavLive.kavServer()
         live == Source.OWN || plan == Source.OWN -> own
-        else -> KavLive.KAV_SERVER
+        else -> KavLive.kavServer()
     }
 
     // What the rider's choices still take from Kav's server, for Settings to say so: a choice of Kav's, or of their own

@@ -776,10 +776,11 @@ private fun Root() {
                         withContext(Dispatchers.IO) { KavLive.check(at, KavLive.keyFor(at)) }
                     }
                     val live = KavLive.server
-                    val answers = check(live) as? KavLive.Check.Answers
+                    // No server to ask at all (a keyless build before an own server is set up): not "offline", no toast.
+                    val answers = if (live.isEmpty()) null else check(live) as? KavLive.Check.Answers
                     val answering = answers?.live == true
                     KavLive.feedDown = answers != null && !answers.live
-                    if (!answering && opening) android.widget.Toast.makeText(
+                    if (!answering && opening && live.isNotEmpty()) android.widget.Toast.makeText(
                         app,
                         when {
                             KavLive.feedDown -> T("The Ministry of Transport's live feed isn't working right now",
@@ -793,7 +794,7 @@ private fun Root() {
                     if (answering && !KavLive.stopsUp) withContext(Dispatchers.IO) { KavLive.stopsAnswering() }
                     val plans = KavPlan.server
                     val c = check(plans) as? KavLive.Check.Answers
-                    if (c == null && opening && plans != live) android.widget.Toast.makeText(
+                    if (c == null && opening && plans != live && plans.isNotEmpty()) android.widget.Toast.makeText(
                         app,
                         if (plans != KavLive.KAV_SERVER) T("Your server isn't answering · no trip planning", "השרת שלכם לא עונה · אין תכנון מסלולים")
                         else T("Kav's server is offline · no trip planning", "השרת של Kav לא זמין · אין תכנון מסלולים"),

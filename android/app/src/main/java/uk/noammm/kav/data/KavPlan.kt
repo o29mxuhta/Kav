@@ -47,7 +47,9 @@ object KavPlan {
     var tabOrder by mutableStateOf(Source.PLANNING)
     // Planners the rider took off the tabs, never asked then; the one chosen above keeps its tab, as results open on it.
     var hiddenTabs by mutableStateOf(emptySet<Source>())
-    fun offeredTabs(): List<Source> = tabOrder.filter { it != Source.OWN || KavLive.ownServer.isNotEmpty() }
+    fun offeredTabs(): List<Source> = tabOrder.filter {
+        (it != Source.OWN || KavLive.ownServer.isNotEmpty()) && (it != Source.KAV || KavLive.kavReachable)
+    }
     fun tabs(): List<Source> = offeredTabs().filter { it == source || it !in hiddenTabs }
 
     // The server that plans for a tab: the chosen planner's as planner() has it, any other's as it's set.
@@ -66,7 +68,8 @@ object KavPlan {
     // isn't answering, or doesn't plan.
     // An extension's planner, once the rider chose one, in place of the server.
     fun planner(): String? = Extensions.selectedPlanner?.let(Extensions::address) ?: kavPlanner()
-    private fun kavPlanner(): String? = server.takeIf { up && offered }
+    // No server address at all (a keyless build before an own server is set up) is no planner, as one down is.
+    private fun kavPlanner(): String? = server.takeIf { it.isNotEmpty() && up && offered }
     fun wanted(): Boolean = planner() != null
 
     // A shared trip Kav planned only a Kav planner finds again, whichever plans now: the one chosen, else the server live

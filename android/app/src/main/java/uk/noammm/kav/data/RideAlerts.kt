@@ -153,7 +153,8 @@ object RideAlerts {
     }
 
     private fun translate(texts: List<String>): List<String> {
-        val at = if (source == Source.OWN && KavLive.ownServer.isNotEmpty()) KavLive.ownServer else KavLive.KAV_SERVER
+        val at = if (source == Source.OWN && KavLive.ownServer.isNotEmpty()) KavLive.ownServer else KavLive.kavServer()
+        if (at.isEmpty()) return texts
         val path = "/live/v1/translate"
         val c = (RiderProxy.open(java.net.URL(at + path)) as java.net.HttpURLConnection).apply {
             connectTimeout = 5_000; readTimeout = 15_000

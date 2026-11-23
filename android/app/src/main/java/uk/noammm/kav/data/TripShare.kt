@@ -25,6 +25,7 @@ internal object TripShare {
     fun create(trip: JSONObject, days: Int, card: ByteArray? = null): String {
         require(days in listOf(3, 7, 30))
         val at = server
+        if (at.isEmpty()) throw java.io.IOException("No server to share through")
         val doc = JSONObject().put("trip", trip).put("days", days)
         val result = card?.let { picture ->
             val encoded = Base64.getEncoder().encodeToString(picture)

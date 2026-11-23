@@ -35,7 +35,8 @@ object KavLive {
 
     // Where live locations come from, Kav's server until the settings are read. Trip planning has its own choice
     // (KavPlan.source).
-    private var selectedSource by mutableStateOf(Source.KAV)
+    // A keyless build has no Kav server to default to: its own, until the rider sets one up.
+    private var selectedSource by mutableStateOf(if (BuildConfig.KAV_LIVE_KEY.isEmpty()) Source.OWN else Source.KAV)
     var sourceRevision by mutableStateOf(0)
         private set
     var source: Source
@@ -49,10 +50,17 @@ object KavLive {
         }
     val origin get() = "$sourceRevision:${source.key}:$server"
 
-    // The server a choice asks: the rider's own once it's set up, Kav's otherwise.
+    // Whether this build can use Kav's server at all: it answers only requests signed with the key Kav is built
+    // with (server/live.py ACCESS=key), so a build without one, such as a fork's, is answered "not found" by design.
+    val kavReachable get() = BuildConfig.KAV_LIVE_KEY.isNotEmpty()
+    // Kav's server when usable, else nowhere: requests to it from a keyless build never leave the phone.
+    fun kavServer(): String = if (kavReachable) KAV_SERVER else ""
+
+    // The server a choice asks: the rider's own once it's set up, Kav's otherwise. On a keyless build with neither,
+    // empty: nowhere to ask, and nothing is asked (get/check/post return before opening a connection).
     fun serverOf(s: Source): String = when {
         s == Source.OWN && ownServer.isNotEmpty() -> ownServer
-        else -> KAV_SERVER
+        else -> kavServer()
     }
     val server get() = serverOf(source)
     val key get() = ownKey
@@ -159,6 +167,7 @@ object KavLive {
     }
 
     private fun get(path: String, quick: Boolean = false, at: String = server): String {
+        if (at.isEmpty()) throw java.io.IOException("Kav live: no server")
         val c = (RiderProxy.open(URL("$at/live/v1/$path")) as HttpURLConnection).apply {
             // A server that answers connects within a few seconds; one that doesn't costs the connect timeout on each of
             // its addresses (Kav's has four).
@@ -221,6 +230,7 @@ object KavLive {
     }
 
     private fun post(at: String, path: String, body: JSONObject, signed: Boolean = false): Pair<Int, JSONObject?> {
+        if (at.isEmpty()) throw java.io.IOException("Kav live: no server")
         val c = RiderProxy.open(URL(at + path)) as HttpURLConnection
         try {
             c.connectTimeout = 8_000; c.readTimeout = 15_000
@@ -261,6 +271,7 @@ object KavLive {
     }
 
     fun check(at: String, key: String): Check {
+        if (at.isEmpty()) return Check.Unreached(Check.Why.NO_SUCH_HOST)
         val c = try {
             RiderProxy.open(URL("$at/live/v1/status")) as HttpURLConnection
         } catch (e: java.io.IOException) {
@@ -381,7 +392,7 @@ object KavLive {
     // How busy routes usually are by hour (the server's busy/, from the ministry's Rav-Kav taps; KavCrowd), the answer as it
     // came, or null. From the server live times come from when it's Kav's or the rider's own, else from Kav's.
     fun busy(routes: List<Int>): String? = try {
-        get("busy/" + routes.joinToString(","), quick = true, at = if (source.liveProvider == Server) server else KAV_SERVER)
+        get("busy/" + routes.joinToString(","), quick = true, at = if (source.liveProvider == Server) server else kavServer())
     } catch (e: Exception) {
         null
     }
