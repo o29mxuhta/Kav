@@ -166,7 +166,7 @@ internal fun planFailure(
 
     // Far from everything still ahead in the trip, and from the step before it.
     if (live != null && at > 0) {
-        val ahead = steps.drop(at - 1).flatMap { s ->
+        val ahead = steps.drop(at - 1).let { if (step is Step.Walk) it.take(2) else it }.flatMap { s ->
             when (s) {
                 is Step.Walk -> listOf(s.leg.shape)
                 is Step.Wait -> listOfNotNull(stepTarget(s, r, chosen)?.let(::listOf))
@@ -177,7 +177,7 @@ internal fun planFailure(
                 is Step.Start -> emptyList()
             }
         }.filter { it.isNotEmpty() }
-        if (ahead.isNotEmpty() && ahead.all { distanceToPath(live.lat, live.lon, it) > (if (step is Step.Walk) 120.0 else OFF_ROUTE_M) + 3 * live.slack }) {
+        if (ahead.isNotEmpty() && ahead.all { distanceToPath(live.lat, live.lon, it) > (if (step is Step.Walk) 100.0 else OFF_ROUTE_M) + (if (step is Step.Walk) 1 else 3) * live.slack }) {
             return Failure(Broken.OFF_ROUTE, "off-$at", ReplanFrom(live.lat to live.lon, 0, keep, done))
         }
     }
