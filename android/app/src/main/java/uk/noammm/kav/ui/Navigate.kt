@@ -1,4 +1,4 @@
-Text(if (planning) T("Finding a new route…", "מחפשים מסלול חדש…") else if (auto > 0) T("New route in $auto s. Tap × to stay", "מסלול חדש בעוד $auto שנ׳. X כדי להישאר") else T("New route from here", "מסלול חדש מכאן"),
+@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 
 package uk.noammm.kav.ui
 
@@ -501,7 +501,7 @@ private fun ReplanCard(
                 .clickable(enabled = !planning, role = Role.Button, onClick = onReplan).padding(horizontal = K.gap3),
             horizontalArrangement = Arrangement.Center, verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(if (planning) T("Finding a new route…", "מחפשים מסלול חדש…") else T("New route from here", "מסלול חדש מכאן"),
+            Text(if (planning) T("Finding a new route…", "מחפשים מסלול חדש…") else if (auto > 0) T("New route in $auto s. Tap × to stay", "מסלול חדש בעוד $auto שנ׳. X כדי להישאר") else T("New route from here", "מסלול חדש מכאן"),
                 style = K.type.bodyStrong, color = K.onAccent)
         }
         if (failed) Text(T("Couldn't find a new route. Try again.", "לא נמצא מסלול חדש. נסו שוב."),
