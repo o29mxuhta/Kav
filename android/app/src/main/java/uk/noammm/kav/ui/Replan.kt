@@ -300,3 +300,4 @@ internal fun firedAfterSwitch(fired: Set<String>, was: List<Transit.Leg>, now: L
 
 // A ride's alerts by its leg (tripAlert): arriving, delayed, get off.
 private val LEG_ALERT = Regex("(?:wait|traffic|ride)-(\\d+)")
+internal object AutoReroute { fun enabled(c: android.content.Context) = c.getSharedPreferences("kav_auto_reroute", 0).getBoolean("on", true); fun set(c: android.content.Context, on: Boolean) { c.getSharedPreferences("kav_auto_reroute", 0).edit().putBoolean("on", on).apply() } }
