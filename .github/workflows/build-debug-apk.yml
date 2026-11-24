@@ -6,6 +6,7 @@ on:
 jobs:
   build:
     runs-on: ubuntu-latest
+    permissions: { contents: write }
     steps:
       - uses: actions/checkout@v4
 
@@ -19,7 +20,7 @@ jobs:
       - name: Assemble debug APK
         working-directory: android
         env:
-          KAV_LIVE_KEY: ${{ secrets.KAV_LIVE_KEY }}
+          KAV_LIVE_KEY: ""
         # Fork builds install beside the real Kav: own applicationId (uk.noammm.kav.dev) and name (Kav-Dev).
         run: ./gradlew :app:assembleDebug --console=plain -PkavDevId=dev '-PkavDevName=Kav-Dev'
 
@@ -27,7 +28,7 @@ jobs:
         with:
           name: kav-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
-
+      - { name: Publish release, env: { GH_TOKEN: "${{ github.token }}" }, run: "gh release create v5.1-fork.${{ github.run_number }} android/app/build/outputs/apk/debug/app-debug.apk --prerelease --target ${{ github.sha }} --title 'Kav-Dev 5.1-fork.${{ github.run_number }}' --notes 'Fork build ${{ github.run_number }} of ${{ github.ref_name }}. Keyless: enter the Kav server key once in Settings.'" }
       - uses: actions/upload-artifact@v7
         with:
           path: android/app/build/outputs/apk/debug/app-debug.apk
