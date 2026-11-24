@@ -1,4 +1,4 @@
-@file:OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
+Text(if (planning) T("Finding a new route…", "מחפשים מסלול חדש…") else if (auto > 0) T("New route in $auto s. Tap × to stay", "מסלול חדש בעוד $auto שנ׳. X כדי להישאר") else T("New route from here", "מסלול חדש מכאן"),
 
 package uk.noammm.kav.ui
 
@@ -340,6 +340,8 @@ fun NavigateScreen(
     fun failureArgs(f: Failure) = tripArgs().put("reason", f.kind.name.lowercase()).put("key", f.key)
     fun showStep(step: Int) { scope.launch { pager.animateScrollToPage(step) } }
     fun keep(f: Failure) { kept = kept + f.key; replanFailed = false }
+    var autoLeft by remember(trip) { mutableStateOf(-1) }
+    LaunchedEffect(failure?.key) { val f = failure; if (f == null || f.kind != Broken.OFF_ROUTE) { autoLeft = -1; return@LaunchedEffect }; autoLeft = 5; while (autoLeft > 0) { kotlinx.coroutines.delay(1000); autoLeft-- }; autoLeft = -1; replan(f) }
     fun stepTapped(step: Int) {
         if (step !in steps.indices) return
         if (!uk.noammm.kav.ext.Actions.take(ctx, "nav.step") { tripArgs().put("step", step).put("current", currentStep).put("steps", steps.size) }) showStep(step)
@@ -399,7 +401,7 @@ fun NavigateScreen(
                 if (!compact) StepStrip(pager, steps.size, currentStep, ::stepTapped)
                 // At the top: the step cards' pager reaches up over what's just above it, and would take its taps.
                 if (failure != null) KavPart("nav.problem", failure.key, { failureArgs(failure) }) {
-                    ReplanCard(failure, r, now, replanning, replanFailed,
+                    ReplanCard(failure, r, now, replanning, replanFailed, autoLeft,
                         onReplan = { if (!uk.noammm.kav.ext.Actions.take(ctx, "nav.replan") { failureArgs(failure) }) replan(failure) },
                         onKeep = { if (!uk.noammm.kav.ext.Actions.take(ctx, "nav.replan.keep") { failureArgs(failure) }) keep(failure) })
                 }
@@ -480,7 +482,7 @@ fun NavigateScreen(
 // The plan stopped working: why, and a new route from here in one tap; the close button keeps the route.
 @Composable
 private fun ReplanCard(
-    failure: Failure, r: Transit.Resolved, now: Long, planning: Boolean, failed: Boolean,
+    failure: Failure, r: Transit.Resolved, now: Long, planning: Boolean, failed: Boolean, auto: Int,
     onReplan: () -> Unit, onKeep: () -> Unit,
 ) {
     Column(Modifier.padding(horizontal = K.gap3).padding(top = K.gap2).fillMaxWidth().glassSurface(K.rCard).padding(K.gap3)) {
