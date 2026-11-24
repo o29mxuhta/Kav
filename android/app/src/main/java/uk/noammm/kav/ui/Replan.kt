@@ -177,7 +177,7 @@ internal fun planFailure(
                 is Step.Start -> emptyList()
             }
         }.filter { it.isNotEmpty() }
-        if (ahead.isNotEmpty() && ahead.all { distanceToPath(live.lat, live.lon, it) > OFF_ROUTE_M + 3 * live.slack }) {
+        if (ahead.isNotEmpty() && ahead.all { distanceToPath(live.lat, live.lon, it) > (if (step is Step.Walk) 120.0 else OFF_ROUTE_M) + 3 * live.slack }) {
             return Failure(Broken.OFF_ROUTE, "off-$at", ReplanFrom(live.lat to live.lon, 0, keep, done))
         }
     }
