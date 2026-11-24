@@ -1597,6 +1597,8 @@ private fun LinePage(
                         // The line's next departures and how busy it is lead, under its name; whether it's live goes under
                         // the map that shows it.
                         LineLiveNote(live, next, busy, late = late)
+                        live.vehicles.filter { it.hasLocation && it.sampleUtc > 0 }.take(3).forEach { v -> val ago = (System.currentTimeMillis() / 1000 - v.sampleUtc).coerceAtLeast(0); val agoText = if (ago >= 120) T("${ago / 60} min", "${ago / 60} דק׳") else T("$ago s", "$ago שנ׳")
+                        Text(T("Bus updated $agoText ago", "אוטובוס עודכן לפני $agoText") + (if (v.speed >= 0) T(" · ${v.speed} km/h", " · ${v.speed} קמ״ש") else ""), fontSize = 12.sp, lineHeight = 17.sp, color = K.dim, modifier = Modifier.padding(horizontal = K.gap3)) }
                         if (onBus && shown.isNotEmpty()) { val sw = way; val nowS = (if (busTick > 0L) busTick else System.currentTimeMillis()) / 1000; Column(Modifier.fillMaxWidth().padding(K.gap3), verticalArrangement = Arrangement.spacedBy(K.gap1)) {
                             if (busDest in shown.indices) { val d = busDest; val eta = if (sw != null && line != null) Schedules.times(line, sw, d, Schedules.today()).filter { it >= nowS }.minOrNull() else null; val mins = eta?.let { (it - nowS + 59) / 60 }
                             Text(T("To \u2068${shown[d].name}\u2069", "אל \u2068${shown[d].name}\u2069"), style = K.type.bodyStrong); val wk = shown[d].week; val stopLive = rememberStopLive(net, wk); val clk = rememberClockSec()
