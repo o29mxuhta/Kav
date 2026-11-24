@@ -1931,7 +1931,7 @@ object Prefs {
     // not by default and not from a stored or restored choice, and Google's is the default instead.
     internal fun crowdOf(stored: String?): String {
         val c = stored?.takeIf { it in CROWDS }
-        if (BuildConfig.KAV_LIVE_KEY.isEmpty()) return c?.takeIf { it != CROWD_KAV } ?: CROWD_GOOGLE
+        if (KavLive.liveKey.isEmpty()) return c?.takeIf { it != CROWD_KAV } ?: CROWD_GOOGLE
         return c ?: CROWD_KAV
     }
     internal fun crowdFromGoogle(on: Boolean): String = if (on) CROWD_GOOGLE else CROWD_OFF
@@ -2040,6 +2040,7 @@ object Prefs {
     fun loadSources(ctx: Context) {
         KavLive.ownServer = ownServer(ctx)
         KavLive.ownKey = kavServerKey(ctx)
+        KavLive.liveKeyUser = store(ctx).getString("liveKeyUser", null).orEmpty()
         KavLive.ownDevice = kavServerDevice(ctx)
         KavLive.ownUser = kavServerUser(ctx)
         KavLive.source = liveSource(ctx)
@@ -2098,6 +2099,7 @@ object Prefs {
     fun ownServer(ctx: Context): String =
         store(ctx).getString("kavServer", null)?.let(KavLive::serverAddress)?.takeIf { it != KavLive.KAV_SERVER }.orEmpty()
     fun kavServerKey(ctx: Context): String = store(ctx).getString("kavServerKey", null).orEmpty()
+    fun setLiveKey(ctx: Context, k: String) = store(ctx).edit().putString("liveKeyUser", k).apply()
     // device and user: this phone's id there and who signed it in, on a server with accounts (KavLive.ownDevice).
     fun setOwnServer(ctx: Context, address: String, key: String, bundleKey: String, device: String = "", user: String = "") =
         store(ctx).edit().putString("kavServer", address).putString("kavServerKey", key).putString("kavServerBundleKey", bundleKey)
