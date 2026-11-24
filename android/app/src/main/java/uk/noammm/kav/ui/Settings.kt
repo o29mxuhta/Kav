@@ -547,6 +547,7 @@ internal fun LineBadgeChoice() {
 // setting Kav up, which has none.
 @Composable
 internal fun UpdatePrompts(checkAbove: Boolean = true) {
+    run { val c2 = LocalContext.current; var k by remember { mutableStateOf(KavLive.liveKeyUser) }; KavField(k, { k = it.trim(); KavLive.liveKeyUser = k; Prefs.setLiveKey(c2, k); if (k.isNotEmpty() && KavLive.ownServer.isEmpty()) { KavLive.source = Source.KAV; Prefs.setLiveSource(c2, Source.KAV) } }, T("Kav server key", "מפתח שרת Kav"), Modifier.fillMaxWidth(), keyboard = androidx.compose.ui.text.input.KeyboardType.Password, secret = true) }
     val ctx = LocalContext.current
     InfoHeader(T("New versions", "גרסאות חדשות"), T(
         "Off, Kav doesn't look for new versions on its own and shows no popup or dot for them, for updating with " +
@@ -1051,7 +1052,7 @@ internal fun CrowdChoice() {
     ) + " " + said)
     // A keyless build has no Kav server for Kav's meter: it isn't offered (the stored choice is already Google's
     // or Off then: Prefs.crowdOf).
-    val crowds = if (uk.noammm.kav.BuildConfig.KAV_LIVE_KEY.isEmpty()) Prefs.CROWDS - Prefs.CROWD_KAV else Prefs.CROWDS
+    val crowds = if (KavLive.liveKey.isEmpty()) Prefs.CROWDS - Prefs.CROWD_KAV else Prefs.CROWDS
     KavSegmented(
         crowds.map { when (it) { Prefs.CROWD_KAV -> "Kav"; Prefs.CROWD_GOOGLE -> "Google"; else -> T("Off", "כבוי") } },
         crowds.indexOf(crowd),
