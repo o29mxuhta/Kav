@@ -1529,6 +1529,7 @@ private fun LinePage(
                 }
             }
             if (all.size > 1) { KavIconButton(Icons.Rounded.SwapVert, T("Change direction", "החלפת כיוון"), { val cur = all.getOrNull(pick); val back = cur?.let { c -> all.indices.firstOrNull { i -> i != pick && all[i].stops.firstOrNull()?.code == c.stops.lastOrNull()?.code && all[i].stops.lastOrNull()?.code == c.stops.firstOrNull()?.code } }; picked = back ?: ((pick + 1) % all.size); focus = -1 }, floating = true, tint = K.textSecondary) }
+            if (all.isEmpty() && route >= 0) { val rev = remember(route) { val t0 = net.representativeTrip(route); if (t0 < 0) -1 else { val f = net.stopName(net.stStop[net.tripStart[t0]]); val l = net.stopName(net.stStop[net.tripStart[t0 + 1] - 1]); (0 until net.nRoutes).firstOrNull { r -> r != route && net.rShort[r] == net.rShort[route] && net.rType[r] == net.rType[route] && net.representativeTrip(r).let { t -> t >= 0 && net.stopName(net.stStop[net.tripStart[t]]) == l && net.stopName(net.stStop[net.tripStart[t + 1] - 1]) == f } } ?: -1 } }; if (rev >= 0) KavIconButton(Icons.Rounded.SwapVert, T("Change direction", "החלפת כיוון"), { model.lineRoute = rev }, floating = true, tint = K.textSecondary) }
             // Kept at the top of the Lines tab, by the week's line it is.
             if (keyRoute >= 0) {
                 val key = lineKey(net, keyRoute)
