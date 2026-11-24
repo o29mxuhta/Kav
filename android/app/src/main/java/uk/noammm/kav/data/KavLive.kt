@@ -30,6 +30,7 @@ object KavLive {
     // The key requests to it are signed with: its KAV_APP_KEY, or on a server with accounts this phone's own token,
     // with ownDevice its id there and ownUser who signed it in (server/accounts.py).
     var ownKey by mutableStateOf("")
+    var liveKeyUser by mutableStateOf(""); val liveKey get() = BuildConfig.KAV_LIVE_KEY.ifEmpty { liveKeyUser }
     var ownDevice by mutableStateOf("")
     var ownUser by mutableStateOf("")
 
@@ -52,7 +53,7 @@ object KavLive {
 
     // Whether this build can use Kav's server at all: it answers only requests signed with the key Kav is built
     // with (server/live.py ACCESS=key), so a build without one, such as a fork's, is answered "not found" by design.
-    val kavReachable get() = BuildConfig.KAV_LIVE_KEY.isNotEmpty()
+    val kavReachable get() = liveKey.isNotEmpty()
     // Kav's server when usable, else nowhere: requests to it from a keyless build never leave the phone.
     fun kavServer(): String = if (kavReachable) KAV_SERVER else ""
 
@@ -71,7 +72,7 @@ object KavLive {
 
     // What requests to a server are signed with: the key Kav is built with for Kav's, the rider's for their own.
     fun keyFor(at: String, own: String = key): String = when (at) {
-        KAV_SERVER, OLD_KAV_SERVER -> BuildConfig.KAV_LIVE_KEY
+        KAV_SERVER, OLD_KAV_SERVER -> liveKey
         else -> own
     }
 
