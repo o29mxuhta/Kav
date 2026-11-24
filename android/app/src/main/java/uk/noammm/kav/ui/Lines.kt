@@ -3,6 +3,7 @@ package uk.noammm.kav.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -51,6 +52,7 @@ import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.material.icons.rounded.SwapVert
+import androidx.compose.material.icons.rounded.DirectionsBus
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.semantics.Role
 import androidx.compose.animation.core.spring
@@ -1279,6 +1281,8 @@ private fun LinePage(
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val source = Schedules.source
+    var onBus by remember { mutableStateOf(false) }; var busDest by remember { mutableStateOf(-1) }; var busTick by remember { mutableStateOf(0L) }
+    LaunchedEffect(onBus) { while (onBus) { busTick = System.currentTimeMillis(); delay(15_000) } }
     LaunchedEffect(keyRoute) { if (keyRoute >= 0) uk.noammm.kav.Prefs.rememberLine(ctx, lineKey(net, keyRoute)) }
     // A train's line is every train between its two stations the same way, each of which the timetable keeps as a
     // route of its own.
@@ -1531,6 +1535,7 @@ private fun LinePage(
             if (all.size > 1) { KavIconButton(Icons.Rounded.SwapVert, T("Change direction", "החלפת כיוון"), { val cur = all.getOrNull(pick); val back = cur?.let { c -> all.indices.firstOrNull { i -> i != pick && all[i].stops.firstOrNull()?.code == c.stops.lastOrNull()?.code && all[i].stops.lastOrNull()?.code == c.stops.firstOrNull()?.code } }; picked = back ?: ((pick + 1) % all.size); focus = -1 }, floating = true, tint = K.textSecondary) }
             if (all.size <= 1 && route >= 0) { val rev = remember(route) { val t0 = net.representativeTrip(route); if (t0 < 0) -1 else { val f = net.stStop[net.tripStart[t0]]; val l = net.stStop[net.tripStart[t0 + 1] - 1]; (0 until net.nRoutes).filter { r -> r != route && net.rShort[r] == net.rShort[route] && net.rType[r] == net.rType[route] && net.rAgency[r] == net.rAgency[route] }.mapNotNull { r -> val t = net.representativeTrip(r); if (t < 0) null else { val cf = net.stStop[net.tripStart[t]]; val cl = net.stStop[net.tripStart[t + 1] - 1]; if (net.cityName(cf) == net.cityName(l)) r to ((if (net.cityName(cl) == net.cityName(f)) 10 else 0) + (if (net.stopName(cf) == net.stopName(l)) 1 else 0) + (if (net.stopName(cl) == net.stopName(f)) 1 else 0)) else null } }.maxByOrNull { it.second }?.first ?: -1 } }; if (rev >= 0) KavIconButton(Icons.Rounded.SwapVert, T("Change direction", "החלפת כיוון"), { model.lineRoute = rev }, floating = true, tint = K.textSecondary) }
             // Kept at the top of the Lines tab, by the week's line it is.
+            KavIconButton(Icons.Rounded.DirectionsBus, T("I am on this bus", "אני באוטובוס"), { onBus = !onBus; busDest = -1 }, floating = true, tint = if (onBus) K.accentInk else K.textSecondary)
             if (keyRoute >= 0) {
                 val key = lineKey(net, keyRoute)
                 val saved = key in model.savedLines
@@ -1592,6 +1597,13 @@ private fun LinePage(
                         // The line's next departures and how busy it is lead, under its name; whether it's live goes under
                         // the map that shows it.
                         LineLiveNote(live, next, busy, late = late)
+                        if (onBus && shown.isNotEmpty()) { val sw = way; val nowS = (if (busTick > 0L) busTick else System.currentTimeMillis()) / 1000; Column(Modifier.fillMaxWidth().padding(K.gap3), verticalArrangement = Arrangement.spacedBy(K.gap1)) {
+                            if (busDest in shown.indices) { val d = busDest; val eta = if (sw != null && line != null) Schedules.times(line, sw, d, Schedules.today()).filter { it >= nowS }.minOrNull() else null; val mins = eta?.let { (it - nowS + 59) / 60 }
+                            Text(if (mins != null) T("$mins min to \u2068${shown[d].name}\u2069", "עוד $mins דק׳ אל \u2068${shown[d].name}\u2069") else T("No timetable time left today to \u2068${shown[d].name}\u2069", "אין עוד זמן בלוח היום אל \u2068${shown[d].name}\u2069"), style = K.type.bodyStrong)
+                            val away = live.vehicles.filter { it.nextStopIndex >= 0 && it.patternStops == shown.size }.map { d - it.nextStopIndex }.filter { it >= 0 }.minOrNull()
+                            Text(if (away != null) T("Live: a bus is $away stops away. Time per timetable, for the next bus of the line.", "חי: אוטובוס במרחק $away תחנות. הזמן לפי לוח הזמנים, לאוטובוס הבא של הקו.") else T("Per timetable, for the next bus of the line. No live bus found.", "לפי לוח הזמנים, לאוטובוס הבא של הקו. לא נמצא אוטובוס חי."), fontSize = 12.sp, lineHeight = 17.sp, color = K.dim)
+                            Text(T("Change stop", "החלפת תחנה"), Modifier.clickable { busDest = -1 }.padding(vertical = K.gap3), color = K.accentInk)
+                            } else { Text(T("Which stop are you getting off at?", "באיזו תחנה יורדים?"), style = K.type.bodyStrong); Column(Modifier.heightIn(max = 220.dp).verticalScroll(rememberScrollState())) { shown.forEachIndexed { i, s -> if (i > 0) Text(s.name, Modifier.fillMaxWidth().clickable { busDest = i }.padding(vertical = K.gap3), maxLines = 1, overflow = TextOverflow.Ellipsis) } } } } }
                         // A bus, train or light rail of the line reported, on the form's questions for its kind
                         // (ReportFor.train): its stops in order, the rider picking where they got on, and a train's number
                         // on the form where the rider knows it.
