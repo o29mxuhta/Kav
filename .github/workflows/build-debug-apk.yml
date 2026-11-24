@@ -18,6 +18,8 @@ jobs:
 
       - name: Assemble debug APK
         working-directory: android
+        env:
+          KAV_LIVE_KEY: ${{ secrets.KAV_LIVE_KEY }}
         # Fork builds install beside the real Kav: own applicationId (uk.noammm.kav.dev) and name (Kav-Dev).
         run: ./gradlew :app:assembleDebug --console=plain -PkavDevId=dev '-PkavDevName=Kav-Dev'
 

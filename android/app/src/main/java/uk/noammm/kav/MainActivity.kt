@@ -653,6 +653,7 @@ class KavModel(net: Net? = null, ctx: Context? = null) : ViewModel() {
     // Check for updates: asks GitHub now, as the rider asked, and keeps the answer as the background check does.
     suspend fun checkForUpdate(ctx: Context) {
         try {
+            if (BuildConfig.KAV_LIVE_KEY.isNotEmpty()) { update = null; updateFailed = false; return }
             val installed = Updates.installedVersion(ctx)
             val latest = withContext(Dispatchers.IO) { Updates.latest().also { Updates.store(ctx, it) } }
             update = latest.takeIf { Updates.isNewer(it.version, installed) }

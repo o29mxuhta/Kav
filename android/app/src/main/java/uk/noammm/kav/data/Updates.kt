@@ -81,8 +81,11 @@ object Updates {
 
     // GitHub's newest release when the last answer is a day old, or there's none yet; null when it isn't time. Blocks,
     // so off the main thread.
+    // A build with Kav's key is a private build that never appears in the fork's public releases, which are keyless:
+    // offering one as an "update" would swap the key out. So it doesn't check.
     fun checkIfDue(ctx: Context): Release? =
-        if (!due(storeFile(ctx).lastModified(), System.currentTimeMillis())) null else latest().also { store(ctx, it) }
+        if (uk.noammm.kav.BuildConfig.KAV_LIVE_KEY.isNotEmpty()) null
+        else if (!due(storeFile(ctx).lastModified(), System.currentTimeMillis())) null else latest().also { store(ctx, it) }
 
     // A clock set back counts as due too, rather than waiting for it to catch up.
     internal fun due(checkedAt: Long, now: Long) = now - checkedAt >= DAY_MS || checkedAt > now
