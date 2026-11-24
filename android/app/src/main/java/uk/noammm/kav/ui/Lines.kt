@@ -50,6 +50,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
+import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.ui.semantics.Role
 import androidx.compose.animation.core.spring
@@ -1527,6 +1528,7 @@ private fun LinePage(
                     }
                 }
             }
+            if (all.size > 1) { KavIconButton(Icons.Rounded.SwapVert, T("Change direction", "החלפת כיוון"), { val cur = all.getOrNull(pick); val back = cur?.let { c -> all.indices.firstOrNull { i -> i != pick && all[i].stops.firstOrNull()?.code == c.stops.lastOrNull()?.code && all[i].stops.lastOrNull()?.code == c.stops.firstOrNull()?.code } }; picked = back ?: ((pick + 1) % all.size); focus = -1 }, floating = true, tint = K.textSecondary) }
             // Kept at the top of the Lines tab, by the week's line it is.
             if (keyRoute >= 0) {
                 val key = lineKey(net, keyRoute)
