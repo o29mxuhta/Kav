@@ -122,7 +122,7 @@ internal fun TransitousChoice() {
     val ctx = LocalContext.current
     Column(Modifier.fillMaxWidth().panel(K.rCard)) {
         ToggleRow(
-            T("Plan with Transitous (no live times)", "תכנון עם Transitous (בלי זמני אמת)"), KavPlan.transitous,
+            T("Plan trips with Transitous", "תכנון מסלולים עם Transitous"), KavPlan.transitous,
             { Icon(Icons.Rounded.Tab, null, tint = toggleInk(KavPlan.transitous), modifier = Modifier.size(22.dp)) },
         ) { on -> KavPlan.transitous = on; Prefs.setTransitous(ctx, on) }
     }
