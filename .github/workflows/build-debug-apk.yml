@@ -3,6 +3,9 @@ name: Build debug APK
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -24,3 +27,9 @@ jobs:
         with:
           name: kav-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Publish keyless pre-release (#108)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
+          gh release create v5.1-fork.22 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.22" --notes "Fork build 22 of feature/line-timetable-tab (#108): Timetable tab on every line page and a Timetable tab in the bottom bar. Keyless: enter the Kav server key once in Settings."
