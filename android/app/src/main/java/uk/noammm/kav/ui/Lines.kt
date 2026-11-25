@@ -2,6 +2,7 @@ package uk.noammm.kav.ui
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.clickable
@@ -1331,6 +1332,8 @@ private fun LinePage(
             ?: list?.indexOfFirst { it.stops.firstOrNull()?.code == start }?.takeIf { it >= 0 }
     }
     var picked by remember(line) { mutableIntStateOf(-1) }
+    // #108: the page's stops, or one stop's timetable for a day picked.
+    var pageTab by remember(line, route) { mutableIntStateOf(0) }
     val pick = if (picked >= 0) picked else opening(ways, opensAt) ?: alongWeek(ways) ?: 0
     var focus by remember(line) { mutableIntStateOf(opensAt) }
     LaunchedEffect(ways) { model.scheduleStop = -1 }
@@ -1565,6 +1568,14 @@ private fun LinePage(
                 Modifier.padding(horizontal = K.gap4).padding(top = K.gap3),
             )
         }
+        // #108: Stops | Timetable, once the line's stops are there.
+        if (rows?.isNotEmpty() == true) Row(
+            Modifier.padding(top = K.gap3).padding(horizontal = K.gap4),
+            horizontalArrangement = Arrangement.spacedBy(K.gap2),
+        ) {
+            Chip(T("Stops", "תחנות"), pageTab == 0) { pageTab = 0 }
+            Chip(T("Timetable", "לוח זמנים"), pageTab == 1) { pageTab = 1 }
+        }
         val state = when {
             ways != null && way == null && line != null -> 1
             rows == null && route < 0 && waysFailed -> 2
@@ -1583,7 +1594,9 @@ private fun LinePage(
                     if (route >= 0) T("Loading stops", "טוען תחנות…")
                     else T("Loading the line from ${sourceName(source)}", "טוענים את הקו מ${sourceName(source)}"),
                 )
-                else -> Column(Modifier.fillMaxSize()) {
+                else -> if (pageTab == 1 && rows != null && rows.isNotEmpty()) LineTimetableTab(
+                    net, line, way, routes, rows, openingAt(rows).coerceAtLeast(0),
+                ) else Column(Modifier.fillMaxSize()) {
                     val shown = rows.orEmpty()
                     if (shown.isNotEmpty()) {
                         // The line's next departures and how busy it is lead, under its name; whether it's live goes under
@@ -1650,6 +1663,106 @@ private fun LinePage(
         }
     }
 }
+
+// #108: a line's timetable at one stop for a day picked. The provider's line asks it for that date; the week on the phone
+// repeats by weekday, so any date has its weekday's trips.
+@Composable
+private fun LineTimetableTab(
+    net: Net, line: Schedules.Line?, way: Schedules.Way?, routes: Set<Int>, rows: List<PageStop>, opensIdx: Int,
+) {
+    val wayId = way?.id
+    var dayOffset by remember(wayId, routes) { mutableIntStateOf(0) }
+    var stopIdx by remember(wayId, routes) { mutableIntStateOf(opensIdx.coerceIn(0, rows.lastIndex)) }
+    val idx = stopIdx.coerceIn(0, rows.lastIndex)
+    val today = remember { Schedules.today() }
+    val day = today.plusDays(dayOffset.toLong())
+    val loc = if (T("e", "h") == "h") java.util.Locale("he") else java.util.Locale.ENGLISH
+    val last = idx == rows.lastIndex
+    val alight = way != null && idx in way.alight
+    // null while it loads; failed: the provider couldn't be asked.
+    val result by produceState<Pair<Boolean, List<Int>>?>(null, wayId, routes, idx, dayOffset) {
+        value = null
+        value = withContext(Dispatchers.IO) {
+            if (last || alight) false to emptyList()
+            else try {
+                if (line != null && way != null) {
+                    val base = Schedules.base(day)
+                    val night = Schedules.times(line, way, idx, day.minusDays(1)).map { (it - base).toInt() }.filter { it >= 0 }
+                    val own = Schedules.times(line, way, idx, day).map { (it - base).toInt() }.filter { it >= 0 }
+                    false to (night + own).distinct().sorted()
+                } else {
+                    val dow = day.dayOfWeek.value % 7
+                    val stop = rows[idx].week
+                    false to if (stop < 0) emptyList() else routes.flatMap { net.lineTimesAt(stop, it, dow) }.distinct().sorted()
+                }
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                true to emptyList()
+            }
+        }
+    }
+    val now = rememberClockSec()
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = K.gap4)) {
+        Row(
+            Modifier.padding(top = K.gap3).horizontalScroll(rememberScrollState()).padding(horizontal = K.gap4),
+            horizontalArrangement = Arrangement.spacedBy(K.gap2),
+        ) {
+            for (i in 0 until 14) {
+                val d = today.plusDays(i.toLong())
+                val label = when (i) {
+                    0 -> T("Today", "היום")
+                    1 -> T("Tomorrow", "מחר")
+                    else -> d.dayOfWeek.getDisplayName(java.time.format.TextStyle.SHORT, loc) + " " + d.dayOfMonth + "/" + d.monthValue
+                }
+                Chip(label, i == dayOffset) { dayOffset = i }
+            }
+        }
+        SectionHeader(T("Stop", "תחנה"), Modifier.padding(horizontal = K.gap4).padding(top = K.gap3))
+        Row(
+            Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = K.gap4),
+            horizontalArrangement = Arrangement.spacedBy(K.gap2),
+        ) {
+            rows.forEachIndexed { i, r -> Chip(r.name, i == idx) { stopIdx = i } }
+        }
+        SectionHeader(
+            dayFull(day, loc) + " · " + T("schedule only", "לפי לוח זמנים בלבד"),
+            Modifier.padding(horizontal = K.gap4).padding(top = K.gap3),
+        )
+        val r = result
+        val times = r?.second.orEmpty()
+        when {
+            r == null -> LoadingBlock(T("Loading times", "טוען שעות…"))
+            last -> NoteCard(T("This line ends at this stop.", "הקו מסתיים בתחנה הזו."), Modifier.padding(K.gap4))
+            alight -> NoteCard(T("Drop-off only. This line doesn't pick up riders here.", "הורדה בלבד. הקו לא אוסף כאן נוסעים."), Modifier.padding(K.gap4))
+            r.first -> NoteCard(unreachable(Schedules.source, T("Its times here didn't load.", "הזמנים כאן לא נטענו.")), Modifier.padding(K.gap4))
+            times.isEmpty() -> NoteCard(T("No trips from this stop on this day.", "אין נסיעות מהתחנה הזו ביום הזה."), Modifier.padding(K.gap4))
+            else -> {
+                val next = if (dayOffset == 0) times.firstOrNull { it >= now } else null
+                Column(Modifier.padding(horizontal = K.gap4).padding(top = K.gap2), verticalArrangement = Arrangement.spacedBy(K.gap2)) {
+                    times.groupBy { it / 3600 % 24 }.forEach { (hour, list) ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(K.gap3)) {
+                            Text("%02d".format(java.util.Locale.US, hour), style = K.type.bodyStrong.tabular, color = K.dim, modifier = Modifier.width(28.dp))
+                            Text(
+                                androidx.compose.ui.text.buildAnnotatedString {
+                                    list.forEachIndexed { i, t ->
+                                        if (i > 0) append("   ")
+                                        if (t == next) withStyle(androidx.compose.ui.text.SpanStyle(fontWeight = FontWeight.Bold, color = K.accentInk)) { append(hhmm(t)) }
+                                        else append(hhmm(t))
+                                    }
+                                },
+                                style = K.type.subhead.tabular, lineHeight = 24.sp, modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+private fun dayFull(day: java.time.LocalDate, loc: java.util.Locale): String =
+    day.dayOfWeek.getDisplayName(java.time.format.TextStyle.FULL, loc) + " " + day.dayOfMonth + "/" + day.monthValue
 
 // Equal while what it holds is, so the page recomposing (live times, the map) isn't another list for its transition.
 private data class PageList(val key: String, val order: Int, val way: Schedules.Way?, val rows: List<PageStop>, val keys: List<String>)
