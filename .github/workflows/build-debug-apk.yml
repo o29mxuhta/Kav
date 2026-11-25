@@ -30,7 +30,7 @@ jobs:
         working-directory: android
         env:
           KAV_DEBUG_KEYSTORE: ${{ runner.temp }}/debug.keystore
-        run: ./gradlew :app:assembleDebug -PkavDevId=dev --console=plain
+        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.1-fork.26 --console=plain
 
       - uses: actions/upload-artifact@v4
         with:
