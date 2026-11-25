@@ -86,6 +86,22 @@ private fun filterLabel(label: String): String = when (label) {
 
 @Composable
 fun LinesScreen(model: KavModel) {
+    // #108: the bottom Timetable tab reads the timetable itself, as the shell only does it for Stops and Lines.
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    if (LocalTimetableFirst.current) LaunchedEffect(model.net == null, model.netError, model.netLoadAttempt) {
+        if (model.net == null && !model.netLoading && model.netError == null) {
+            model.netLoading = true
+            try {
+                model.net = uk.noammm.kav.loadNet(ctx)
+            } catch (e: kotlinx.coroutines.CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                model.netError = e.message ?: e.javaClass.simpleName
+            } finally {
+                model.netLoading = false
+            }
+        }
+    }
     WithTimetable(model) { net -> LinesBody(model, net) }
 }
 
