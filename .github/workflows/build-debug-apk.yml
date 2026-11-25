@@ -30,7 +30,7 @@ jobs:
         working-directory: android
         env:
           KAV_DEBUG_KEYSTORE: ${{ runner.temp }}/debug.keystore
-        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.1-fork.27 --console=plain
+        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.1-fork.28 --console=plain
 
       - uses: actions/upload-artifact@v4
         with:
@@ -41,4 +41,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
-          gh release create v5.1-fork.27 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.27" --notes "Fork build 27 of feature/line-timetable-tab (#108): The Kav server key field is on the Kav page (the one with updates and backup). Same fixed signing key, installs over the previous build."
+          gh release create v5.1-fork.28 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.28" --notes "Fork build 28 of feature/line-timetable-tab (#108): In-app update now checks this fork's releases, pre-releases included, and compares the fork version. Same fixed signing key, installs over the previous build."
