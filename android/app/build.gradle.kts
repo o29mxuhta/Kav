@@ -21,7 +21,8 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 47
-        versionName = "5.1"
+        // #108: a fork build says so (-PkavVersionName=5.1-fork.N), so Settings shows the fork, not Noam's 5.1.
+        versionName = (project.findProperty("kavVersionName") as String?)?.takeIf { it.isNotBlank() } ?: "5.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // MapLibre's renderer is native code. Every phone Kav can reach is arm64;
         // x86_64 stays so the release APK still installs on the emulator.
