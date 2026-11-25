@@ -31,6 +31,13 @@ android {
         buildConfigField("boolean", "TICKET_TIMING", (project.findProperty("kavTicketTiming") == "true").toString())
     }
 
+    // #108: CI signs debug builds with one fixed key (KAV_DEBUG_KEYSTORE), so each build installs over the last.
+    System.getenv("KAV_DEBUG_KEYSTORE")?.takeIf { it.isNotBlank() }?.let { path ->
+        signingConfigs.getByName("debug").apply {
+            storeFile = file(path); storePassword = "android"; keyAlias = "androiddebugkey"; keyPassword = "android"
+        }
+    }
+
     buildTypes {
         debug {
             isMinifyEnabled = false
