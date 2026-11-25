@@ -109,6 +109,15 @@ fun SettingsScreen(model: KavModel, active: Boolean = true, onClose: () -> Unit)
     }
     val waiting = model.update != null && Shown.updatePrompts
 
+    // #108: Kav's server key, its own row in the list, for a build made without one.
+    if (uk.noammm.kav.BuildConfig.KAV_LIVE_KEY.isEmpty()) part(
+        "kavkey",
+        T("Kav server key", "מפתח השרת של Kav"),
+        if (KavLive.kavKey.isBlank()) T("Not set", "לא הוגדר") else T("Set", "הוגדר"),
+    ) {
+        Column(Modifier.fillMaxWidth().padding(horizontal = K.gap3)) { KavKeyField() }
+    }
+
     part(
         "live",
         T("Live times and planners", "זמני הגעה בזמן אמת ומתכננים"),
