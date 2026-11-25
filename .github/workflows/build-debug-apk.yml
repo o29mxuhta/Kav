@@ -24,11 +24,12 @@ jobs:
           KS: ${{ secrets.DEBUG_KEYSTORE_B64 }}
         run: |
           test -n "$KS"
-          mkdir -p ~/.android
-          echo "$KS" | base64 -d > ~/.android/debug.keystore
+          echo "$KS" | base64 -d > "$RUNNER_TEMP/debug.keystore"
 
       - name: Assemble debug APK
         working-directory: android
+        env:
+          KAV_DEBUG_KEYSTORE: ${{ runner.temp }}/debug.keystore
         run: ./gradlew :app:assembleDebug -PkavDevId=dev --console=plain
 
       - uses: actions/upload-artifact@v4
@@ -40,4 +41,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
-          gh release create v5.1-fork.24 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.24" --notes "Fork build 24 of feature/line-timetable-tab (#108): Adds a Kav server key field in Settings (Live times and planners), since this build carries no key. Same signing key as fork.23, so it updates over it."
+          gh release create v5.1-fork.25 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.25" --notes "Fork build 25 of feature/line-timetable-tab (#108): Signed with a fixed key from now on (earlier builds used random keys): uninstall Kav dev once, then builds update over each other. Includes the Kav server key field in Settings."
