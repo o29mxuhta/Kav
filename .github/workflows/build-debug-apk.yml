@@ -30,7 +30,7 @@ jobs:
         working-directory: android
         env:
           KAV_DEBUG_KEYSTORE: ${{ runner.temp }}/debug.keystore
-        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.1-fork.36 --console=plain
+        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.1-fork.37 --console=plain
 
       - uses: actions/upload-artifact@v4
         with:
@@ -41,4 +41,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
-          gh release create v5.1-fork.36 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.36" --notes "Fork build 36 of feature/line-timetable-tab (#108): Swap button and no-return note: a line inside one town needs a real reverse (#107). Installs over the previous build."
+          gh release create v5.1-fork.37 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.37" --notes "Fork build 37 of feature/line-timetable-tab (#108): Swap button on a live line also finds a way back by nearby stops (#107). Installs over the previous build."
