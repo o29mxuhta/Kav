@@ -30,7 +30,7 @@ jobs:
         working-directory: android
         env:
           KAV_DEBUG_KEYSTORE: ${{ runner.temp }}/debug.keystore
-        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.1-fork.30 --console=plain
+        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.1-fork.31 --console=plain
 
       - uses: actions/upload-artifact@v4
         with:
@@ -41,4 +41,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
-          gh release create v5.1-fork.30 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.30" --notes "Fork build 30 of feature/line-timetable-tab (#108): Fixes the Timetable tab stuck on Opening the timetable (#108). Installs over the previous build."
+          gh release create v5.1-fork.31 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.31" --notes "Fork build 31 of feature/line-timetable-tab (#108): Timetable tab: scrolls to the last times, and switches direction (#108). Installs over the previous build."
