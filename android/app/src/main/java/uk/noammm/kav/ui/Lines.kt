@@ -1613,6 +1613,7 @@ private fun LinePage(
                 )
                 else -> if (pageTab == 1 && rows != null && rows.isNotEmpty()) LineTimetableTab(
                     net, line, way, routes, rows, openingAt(rows).coerceAtLeast(0),
+                    if (line == null) route else -1, { r -> model.lineRoute = r },
                 ) else Column(Modifier.fillMaxSize()) {
                     val shown = rows.orEmpty()
                     if (shown.isNotEmpty()) {
@@ -1689,6 +1690,7 @@ internal val LocalTimetableFirst = compositionLocalOf { false }
 @Composable
 private fun LineTimetableTab(
     net: Net, line: Schedules.Line?, way: Schedules.Way?, routes: Set<Int>, rows: List<PageStop>, opensIdx: Int,
+    route: Int = -1, onRoute: (Int) -> Unit = {},
 ) {
     val wayId = way?.id
     var dayOffset by remember(wayId, routes) { mutableIntStateOf(0) }
@@ -1722,8 +1724,40 @@ private fun LineTimetableTab(
             }
         }
     }
+    // #108: the week has each direction as a route of its own: the other directions of this line, to switch to.
+    val others by produceState(emptyList<Triple<Int, String, String>>(), route) {
+        value = withContext(Dispatchers.Default) {
+            if (route < 0) emptyList() else {
+                fun ends(r: Int): Pair<String, String>? {
+                    val t = net.representativeTrip(r)
+                    if (t < 0 || net.tripStart[t + 1] - net.tripStart[t] < 2) return null
+                    return shownEnd(net, net.stStop[net.tripStart[t]]) to shownEnd(net, net.stStop[net.tripStart[t + 1] - 1])
+                }
+                val me = ends(route)
+                val short = net.rShort[route]; val agency = net.agencyOf(route); val type = net.rType[route]
+                val seen = HashSet<String>()
+                if (me != null) seen.add(me.first + "|" + me.second)
+                val out = ArrayList<Triple<Int, String, String>>()
+                for (r in net.rShort.indices) {
+                    if (r == route || net.rShort[r] != short || net.rType[r] != type || net.agencyOf(r) != agency) continue
+                    val e = ends(r) ?: continue
+                    if (seen.add(e.first + "|" + e.second)) out.add(Triple(r, e.second, e.first))
+                }
+                if (short.isBlank()) out.filter { me != null && it.third == me.second }.take(4)
+                else out.sortedByDescending { me != null && it.third == me.second }.take(6)
+            }
+        }
+    }
     val now = rememberClockSec()
-    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = K.gap4)) {
+    Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(bottom = LocalBottomBarInset.current + K.gap4)) {
+        if (others.isNotEmpty()) Row(
+            Modifier.padding(top = K.gap3).horizontalScroll(rememberScrollState()).padding(horizontal = K.gap4),
+            horizontalArrangement = Arrangement.spacedBy(K.gap2),
+        ) {
+            val to = rows.last().name
+            Chip(T("To \u2068$to\u2069", "\u05d0\u05dc \u2068$to\u2069"), true) {}
+            others.forEach { (r, end, _) -> Chip(T("To \u2068$end\u2069", "\u05d0\u05dc \u2068$end\u2069"), false) { onRoute(r) } }
+        }
         Row(
             Modifier.padding(top = K.gap3).horizontalScroll(rememberScrollState()).padding(horizontal = K.gap4),
             horizontalArrangement = Arrangement.spacedBy(K.gap2),
