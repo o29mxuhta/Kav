@@ -15,7 +15,11 @@ import java.net.URL
 object Updates {
     const val OWNER = "ImNoammm"
     const val REPO = "kav"
-    const val PAGE = "https://github.com/$OWNER/$REPO/releases"
+    // #108: in-app updates come from this fork's releases (pre-releases included). OWNER and REPO stay Noam's: the map
+    // packs and the daily timetable are downloaded from his repository.
+    const val UPDATE_OWNER = "o29mxuhta"
+    const val UPDATE_REPO = "Kav"
+    const val PAGE = "https://github.com/$UPDATE_OWNER/$UPDATE_REPO/releases"
 
     class Release(
         val version: String,
@@ -30,7 +34,7 @@ object Updates {
         runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "0"
 
     fun latest(): Release {
-        val c = (RiderProxy.open(URL("https://api.github.com/repos/$OWNER/$REPO/releases/latest")) as HttpURLConnection).apply {
+        val c = (RiderProxy.open(URL("https://api.github.com/repos/$UPDATE_OWNER/$UPDATE_REPO/releases?per_page=30")) as HttpURLConnection).apply {
             connectTimeout = 10_000; readTimeout = 15_000
             setRequestProperty("Accept", "application/vnd.github+json")
             setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
@@ -38,7 +42,16 @@ object Updates {
         }
         val code = c.responseCode
         if (code != 200) throw RuntimeException("GitHub HTTP $code")
-        val o = JSONObject(c.inputStream.use { String(it.readBytes(), Charsets.UTF_8) })
+        val all = org.json.JSONArray(c.inputStream.use { String(it.readBytes(), Charsets.UTF_8) })
+        // The newest version-tagged release with an APK: data releases (timetable, maps) and drafts are skipped.
+        var found: JSONObject? = null
+        for (i in 0 until all.length()) {
+            val r = all.optJSONObject(i) ?: continue
+            if (r.optBoolean("draft") || !Regex("^[vV]?[0-9]+.*").matches(r.optString("tag_name"))) continue
+            val ar = r.optJSONArray("assets") ?: continue
+            if ((0 until ar.length()).any { ar.optJSONObject(it)?.optString("name")?.endsWith(".apk", ignoreCase = true) == true }) { found = r; break }
+        }
+        val o: JSONObject = found ?: throw RuntimeException("No release with an APK")
         val assets = o.optJSONArray("assets")
         var apk: JSONObject? = null
         for (i in 0 until (assets?.length() ?: 0)) {
