@@ -55,6 +55,8 @@ object KavLive {
         else -> KAV_SERVER
     }
     val server get() = serverOf(source)
+    // The key for Kav's server when the build has none: typed in Settings, saved on the phone (#108).
+    var kavKey by mutableStateOf("")
     val key get() = ownKey
     val own get() = source == Source.OWN && ownServer.isNotEmpty()
 
@@ -63,7 +65,7 @@ object KavLive {
 
     // What requests to a server are signed with: the key Kav is built with for Kav's, the rider's for their own.
     fun keyFor(at: String, own: String = key): String = when (at) {
-        KAV_SERVER, OLD_KAV_SERVER -> BuildConfig.KAV_LIVE_KEY
+        KAV_SERVER, OLD_KAV_SERVER -> BuildConfig.KAV_LIVE_KEY.ifBlank { kavKey }
         else -> own
     }
 
