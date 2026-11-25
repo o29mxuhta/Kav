@@ -123,6 +123,7 @@ fun SettingsScreen(model: KavModel, active: Boolean = true, onClose: () -> Unit)
             TimetableSource()
             TimetableUpdates()
             ShareServerChoice()
+            KavKeyField()
         }
     }
 
@@ -1387,6 +1388,29 @@ internal fun ShareServerChoice() {
                 { i -> TripShare.picked = order[i]; Prefs.setShareServer(ctx, order[i]) },
             )
         }
+    }
+}
+
+// #108: the key for Kav's server, for a build made without one. Typed here, kept on the phone only.
+@Composable
+internal fun KavKeyField() {
+    val ctx = LocalContext.current
+    if (uk.noammm.kav.BuildConfig.KAV_LIVE_KEY.isNotEmpty()) return
+    Column(Modifier.fillMaxWidth().padding(top = K.gap3)) {
+        InfoHeader(T("Kav server key", "מפתח השרת של Kav"), T(
+            "The key Kav's server asks for to show live bus times. It stays on this phone.",
+            "המפתח ששרת Kav מבקש כדי להציג זמני אוטובוסים בזמן אמת. הוא נשאר בטלפון הזה.",
+        ))
+        androidx.compose.foundation.text.BasicTextField(
+            value = KavLive.kavKey,
+            onValueChange = { v -> val t = v.trim(); KavLive.kavKey = t; Prefs.setKavLiveKey(ctx, t); KavLive.recheck.trySend(Unit) },
+            textStyle = K.type.body,
+            singleLine = true,
+            cursorBrush = androidx.compose.ui.graphics.SolidColor(K.text),
+            visualTransformation = androidx.compose.ui.text.input.PasswordVisualTransformation(),
+            modifier = Modifier.fillMaxWidth().heightIn(min = 52.dp).clip(K.capsule).background(K.fill)
+                .padding(horizontal = K.gap4, vertical = 12.dp),
+        )
     }
 }
 
