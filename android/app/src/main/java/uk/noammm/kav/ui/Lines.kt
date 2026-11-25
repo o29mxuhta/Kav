@@ -1598,6 +1598,14 @@ private fun LinePage(
                 Modifier.padding(horizontal = K.gap4).padding(top = K.gap3),
             )
         }
+        // #107: a numbered line of the phone's timetable with no route going back the other way.
+        val noReturn by produceState<Boolean?>(null, route, line) {
+            value = if (route < 0 || line != null || number.isBlank()) false else withContext(Dispatchers.Default) { !hasReverse(net, route) }
+        }
+        if (noReturn == true) NoteCard(
+            T("No return route in the Transport Ministry data.", "אין מסלול חזור בנתוני משרד התחבורה."),
+            Modifier.padding(horizontal = K.gap4).padding(top = K.gap3),
+        )
         // #108: Stops | Timetable, once the line's stops are there.
         if (rows?.isNotEmpty() == true) Row(
             Modifier.padding(top = K.gap3).padding(horizontal = K.gap4),
@@ -1693,6 +1701,25 @@ private fun LinePage(
             }
         }
     }
+}
+
+// #107: whether another route of this line (same number, operator and mode) leaves from where this one ends, or ends where
+// this one starts. A line that starts and ends at one stop needs none.
+private fun hasReverse(net: Net, route: Int): Boolean {
+    fun ends(r: Int): Pair<String, String>? {
+        val t = net.representativeTrip(r)
+        if (t < 0 || net.tripStart[t + 1] - net.tripStart[t] < 2) return null
+        return shownEnd(net, net.stStop[net.tripStart[t]]) to shownEnd(net, net.stStop[net.tripStart[t + 1] - 1])
+    }
+    val me = ends(route) ?: return true
+    if (me.first == me.second) return true
+    val short = net.rShort[route]; val agency = net.agencyOf(route); val type = net.rType[route]
+    for (r in net.rShort.indices) {
+        if (r == route || net.rShort[r] != short || net.rType[r] != type || net.agencyOf(r) != agency) continue
+        val e = ends(r) ?: continue
+        if (e.first == me.second || e.second == me.first) return true
+    }
+    return false
 }
 
 // #108: the Timetable tab opens lines on their timetable.
