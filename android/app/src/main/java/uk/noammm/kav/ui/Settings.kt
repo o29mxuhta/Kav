@@ -250,6 +250,7 @@ fun SettingsScreen(model: KavModel, active: Boolean = true, onClose: () -> Unit)
         Column(Modifier.fillMaxWidth().padding(horizontal = K.gap3)) {
             UpdatePrompts()
             AutomaticUpdates()
+            KavKeyField()
             BackupSection(model)
             FixCheck()
             HelpSection()
