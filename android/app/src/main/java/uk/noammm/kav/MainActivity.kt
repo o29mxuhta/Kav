@@ -2040,6 +2040,7 @@ object Prefs {
     fun loadSources(ctx: Context) {
         KavLive.ownServer = ownServer(ctx)
         KavLive.ownKey = kavServerKey(ctx)
+        KavLive.kavKey = kavLiveKey(ctx)
         KavLive.ownDevice = kavServerDevice(ctx)
         KavLive.ownUser = kavServerUser(ctx)
         KavLive.source = liveSource(ctx)
@@ -2098,6 +2099,9 @@ object Prefs {
     fun ownServer(ctx: Context): String =
         store(ctx).getString("kavServer", null)?.let(KavLive::serverAddress)?.takeIf { it != KavLive.KAV_SERVER }.orEmpty()
     fun kavServerKey(ctx: Context): String = store(ctx).getString("kavServerKey", null).orEmpty()
+    // The key for Kav's own server, typed in Settings when the build carries none.
+    fun kavLiveKey(ctx: Context): String = store(ctx).getString("kavLiveKey", null).orEmpty()
+    fun setKavLiveKey(ctx: Context, key: String) = store(ctx).edit().putString("kavLiveKey", key).apply()
     // device and user: this phone's id there and who signed it in, on a server with accounts (KavLive.ownDevice).
     fun setOwnServer(ctx: Context, address: String, key: String, bundleKey: String, device: String = "", user: String = "") =
         store(ctx).edit().putString("kavServer", address).putString("kavServerKey", key).putString("kavServerBundleKey", bundleKey)
