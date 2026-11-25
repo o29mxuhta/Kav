@@ -41,4 +41,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
-          gh release create v5.1-fork.25 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.25" --notes "Fork build 25 of feature/line-timetable-tab (#108): Signed with a fixed key from now on (earlier builds used random keys): uninstall Kav dev once, then builds update over each other. Includes the Kav server key field in Settings."
+          gh release create v5.1-fork.26 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.26" --notes "Fork build 26 of feature/line-timetable-tab (#108): Settings has its own Kav server key row in the main list. Same fixed signing key, installs over the previous build."
