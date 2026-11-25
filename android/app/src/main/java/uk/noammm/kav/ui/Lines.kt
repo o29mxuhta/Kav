@@ -1333,7 +1333,8 @@ private fun LinePage(
     }
     var picked by remember(line) { mutableIntStateOf(-1) }
     // #108: the page's stops, or one stop's timetable for a day picked.
-    var pageTab by remember(line, route) { mutableIntStateOf(0) }
+    val timetableFirst = LocalTimetableFirst.current
+    var pageTab by remember(line, route) { mutableIntStateOf(if (timetableFirst) 1 else 0) }
     val pick = if (picked >= 0) picked else opening(ways, opensAt) ?: alongWeek(ways) ?: 0
     var focus by remember(line) { mutableIntStateOf(opensAt) }
     LaunchedEffect(ways) { model.scheduleStop = -1 }
@@ -1664,6 +1665,9 @@ private fun LinePage(
     }
 }
 
+// #108: the Timetable tab opens lines on their timetable.
+internal val LocalTimetableFirst = compositionLocalOf { false }
+
 // #108: a line's timetable at one stop for a day picked. The provider's line asks it for that date; the week on the phone
 // repeats by weekday, so any date has its weekday's trips.
 @Composable
@@ -1726,7 +1730,7 @@ private fun LineTimetableTab(
             rows.forEachIndexed { i, r -> Chip(r.name, i == idx) { stopIdx = i } }
         }
         SectionHeader(
-            dayFull(day, loc) + " · " + T("schedule only", "לפי לוח זמנים בלבד"),
+            dayFull(day, loc) + " · " + T("Estimated time", "זמן משוער"),
             Modifier.padding(horizontal = K.gap4).padding(top = K.gap3),
         )
         val r = result
