@@ -40,4 +40,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
-          gh release create v5.1-fork.23 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.23" --notes "Fork build 23 of feature/line-timetable-tab (#108): Timetable tab on every line page and a Timetable tab in the bottom bar. Keyless: enter the Kav server key once in Settings."
+          gh release create v5.1-fork.24 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.24" --notes "Fork build 24 of feature/line-timetable-tab (#108): Adds a Kav server key field in Settings (Live times and planners), since this build carries no key. Same signing key as fork.23, so it updates over it."
