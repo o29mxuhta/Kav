@@ -126,6 +126,7 @@ fun SettingsScreen(model: KavModel, active: Boolean = true, onClose: () -> Unit)
         Column(Modifier.fillMaxWidth().padding(horizontal = K.gap3)) {
             LiveSource()
             PlanningSource()
+            TransitousChoice()
             EveryPlannerChoice()
             AlertsChoice()
             CrowdChoice()
@@ -151,7 +152,6 @@ fun SettingsScreen(model: KavModel, active: Boolean = true, onClose: () -> Unit)
         ).joinToString(" · "),
     ) {
         PlanChoices(model)
-        TransitousChoice()
         Column(Modifier.fillMaxWidth().padding(horizontal = K.gap3)) {
             OnTheWayChoices(spoken, startNow, { spoken = it }, { startNow = it })
         }
