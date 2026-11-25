@@ -30,7 +30,7 @@ jobs:
         working-directory: android
         env:
           KAV_DEBUG_KEYSTORE: ${{ runner.temp }}/debug.keystore
-        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.1-fork.39 --console=plain
+        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.1-fork.40 --console=plain
 
       - uses: actions/upload-artifact@v4
         with:
@@ -41,4 +41,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
-          gh release create v5.1-fork.39 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.39" --notes "Fork build 39 of feature/transitous-planner (#113): an optional Transitous planner, off by default, in Settings under Trips. Installs over the previous build."
+          gh release create v5.1-fork.40 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.40" --notes "Fork build 40 of feature/transitous-planner (#113): the Transitous switch moved to Settings, Live times and planners, under Trip planning. Installs over the previous build."
