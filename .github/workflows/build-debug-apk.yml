@@ -30,7 +30,7 @@ jobs:
         working-directory: android
         env:
           KAV_DEBUG_KEYSTORE: ${{ runner.temp }}/debug.keystore
-        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.1-fork.48 --console=plain
+        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.1-fork.49 --console=plain
 
       - uses: actions/upload-artifact@v4
         with:
@@ -41,4 +41,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
-          gh release create v5.1-fork.48 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.48" --notes "Fork build 48 of feature/combined (#100, #116, #117): on-bus, planner, bug report and the time to leave. Installs over the previous build."
+          gh release create v5.1-fork.49 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.1-fork.49" --notes "Fork build 49 of feature/combined (#100, #116, #117, #128): on-bus, planner, bug report, time to leave and the address pin fix. Installs over the previous build."
