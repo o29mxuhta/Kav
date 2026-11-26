@@ -16,6 +16,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
@@ -146,13 +147,28 @@ internal fun onBusStops(net: Net, p: BusPick): OnBusStops {
     return OnBusStops(stops, shape, ahead)
 }
 
+// The timetable's own rows for this bus's trip, the last stop's too (a stop's list of departures leaves a trip's last stop
+// out, so a terminus never had a time that way).
+private class OnBusTimes(val stops: List<Int>, val times: List<Int>)
+
+private fun onBusTimes(net: Net, p: BusPick, d: OnBusStops, first: Long): OnBusTimes? {
+    for (g in d.stops) {
+        val st = KavLive.stopTimeOf(net, g, p.line.number, first, p.line.name)
+        if (st < 0) continue
+        val t = net.tripOf(st)
+        val rows = (net.tripStart[t] until net.tripStart[t + 1]).toList()
+        return OnBusTimes(rows.map { net.stStop[it] }, rows.map { net.stDep[it] })
+    }
+    return null
+}
+
 // What the timetable has this trip doing where the bus is now: between the two stops it is between.
-private fun onBusScheduledHere(net: Net, p: BusPick, d: OnBusStops, first: Long, spot: KavLive.Spot): Int? {
-    val s = d.stops
+private fun onBusScheduledHere(net: Net, tm: OnBusTimes, shape: List<Pair<Double, Double>>, spot: KavLive.Spot): Int? {
+    val s = tm.stops
     if (s.size < 2) return null
-    val along = d.shape.size >= 2
-    val pos = if (along) alongPath(spot.lat, spot.lon, d.shape) else 0.0
-    val marks = s.map { if (along) alongPath(net.lat[it], net.lon[it], d.shape) else 0.0 }
+    val along = shape.size >= 2
+    val pos = if (along) alongPath(spot.lat, spot.lon, shape) else 0.0
+    val marks = s.map { if (along) alongPath(net.lat[it], net.lon[it], shape) else 0.0 }
     var i = -1
     if (along) {
         for (k in s.indices) if (marks[k] <= pos) i = k
@@ -164,26 +180,44 @@ private fun onBusScheduledHere(net: Net, p: BusPick, d: OnBusStops, first: Long,
         }
     }
     if (i < 0) i = 0
-    val t0 = KavLive.scheduledAt(net, s[i], p.line.number, first, p.line.name) ?: return null
+    val t0 = tm.times[i]
     if (!along || i >= s.lastIndex) return t0
-    val t1 = KavLive.scheduledAt(net, s[i + 1], p.line.number, first, p.line.name) ?: return t0
+    val t1 = tm.times[i + 1]
     val span = marks[i + 1] - marks[i]
     val f = if (span <= 1.0) 0.0 else ((pos - marks[i]) / span).coerceIn(0.0, 1.0)
     return t0 + ((t1 - t0) * f).toInt()
 }
 
-// seconds: null when nothing can say. live: from the bus's own position (the timetable's time moved by how far the bus runs
-// from it); else the timetable's alone. rough: no timetable time for the stop, only how far the road still goes.
-internal class OnBusEta(val seconds: Long?, val live: Boolean, val rough: Boolean)
+// seconds: null when nothing can say. board: the ministry's own live time for this bus at the stop (what Kav's lines show).
+// live: else from the bus's own position (the timetable's time moved by how far the bus runs from it); else the
+// timetable's alone. rough: no timetable time for the stop, only how far the road still goes.
+internal class OnBusEta(val seconds: Long?, val live: Boolean, val rough: Boolean, val board: Boolean = false)
 
+// Slow (it asks the server): off the main thread.
 internal fun onBusEta(net: Net, p: BusPick, d: OnBusStops, dest: Int, spot: KavLive.Spot?, now: Long): OnBusEta {
     val first = KavLive.firstOf(p.bus.key)
     val nowSec = KavLive.secondOfDay(now)
-    val sched: Int? = first?.let { KavLive.scheduledAt(net, dest, p.line.number, it, p.line.name) }
     val fresh = spot != null && now - spot.at <= KavLive.STALE_S
-    if (first != null && sched != null) {
+    val code = net.code.getOrElse(dest) { 0 }
+    if (code > 0) {
+        val board = try {
+            KavLive.stops(listOf(code))
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            null
+        }
+        val due = board?.due?.firstOrNull {
+            it.stop == code && it.expected > 0 && (it.key == p.bus.key || (first != null && it.route == p.bus.route && it.first == first))
+        }
+        if (due != null) return OnBusEta((due.expected - now).coerceAtLeast(0L), live = true, rough = false, board = true)
+    }
+    val tm = if (first == null) null else onBusTimes(net, p, d, first)
+    val k = tm?.stops?.lastIndexOf(dest) ?: -1
+    val sched: Int? = if (tm != null && k >= 0) tm.times[k] else null
+    if (tm != null && sched != null) {
         if (spot == null || !fresh) return OnBusEta((sched - nowSec).toLong().coerceAtLeast(0L), live = false, rough = false)
-        val here = onBusScheduledHere(net, p, d, first, spot)
+        val here = onBusScheduledHere(net, tm, d.shape, spot)
         if (here != null) {
             val delay = (KavLive.secondOfDay(spot.at) - here).coerceIn(-900, 5400)
             return OnBusEta((sched + delay - nowSec).toLong().coerceAtLeast(0L), live = true, rough = false)
@@ -402,8 +436,10 @@ private fun OnBusPickStop(net: Net, p: BusPick, back: () -> Unit, onStop: (Int, 
 private fun OnBusRiding(net: Net, p: BusPick, d: OnBusStops, dest: Int, change: () -> Unit) {
     var spot by remember { mutableStateOf<KavLive.Spot?>(p.bus.spot) }
     var now by remember { mutableLongStateOf(System.currentTimeMillis() / 1000) }
+    var tick by remember { mutableIntStateOf(0) }
     LaunchedEffect(p.bus.key) {
         while (true) {
+            tick++
             val s = spot
             if (s != null) {
                 val area = try {
@@ -425,18 +461,22 @@ private fun OnBusRiding(net: Net, p: BusPick, d: OnBusStops, dest: Int, change: 
             delay(1000)
         }
     }
-    val calc = remember(spot) {
+    var calc by remember { mutableStateOf<Pair<Long, OnBusEta>?>(null) }
+    LaunchedEffect(spot, tick) {
         val t = System.currentTimeMillis() / 1000
-        Pair(t, onBusEta(net, p, d, dest, spot, t))
+        val e = withContext(Dispatchers.IO) { onBusEta(net, p, d, dest, spot, t) }
+        calc = Pair(t, e)
     }
-    val eta = calc.second
-    val left = eta.seconds?.let { (it - (now - calc.first)).coerceAtLeast(0L) }
+    val eta = calc?.second
+    val left = calc?.let { c -> c.second.seconds?.let { (it - (now - c.first)).coerceAtLeast(0L) } }
     val here = spot
     val atStop = here != null && metres(here.lat, here.lon, net.lat[dest], net.lon[dest]) < 100.0
     Text(T("Line ${p.line.number} to ${p.line.to}", "קו ${p.line.number} ל${p.line.to}"), style = K.type.title)
     Text(T("Get off at ${net.stopName(dest)}", "יורדים ב${net.stopName(dest)}"), style = K.type.headline)
     if (atStop) {
         Text(T("The bus is at your stop.", "האוטובוס בתחנה שלכם."), style = K.type.headline)
+    } else if (eta == null) {
+        Text(T("Working out the time…", "מחשבים את הזמן…"), style = K.type.subhead)
     } else if (left == null) {
         Text(T("No time can be given for this stop.", "אי אפשר לתת זמן לתחנה הזו."), style = K.type.subhead)
     } else {
@@ -448,7 +488,8 @@ private fun OnBusRiding(net: Net, p: BusPick, d: OnBusStops, dest: Int, change: 
     }
     val age = here?.let { now - it.at }
     Text(
-        when {
+        if (eta == null) "" else when {
+            eta.board -> T("Live: the ministry's own time for this bus at this stop, the same as Kav's lines show.", "חי: הזמן של משרד התחבורה לאוטובוס הזה בתחנה הזו, כמו שמופיע בקווים ב-Kav.")
             eta.live && eta.rough -> T("Rough estimate from where the bus is now (no timetable time for this stop).", "הערכה גסה לפי המיקום של האוטובוס עכשיו (אין שעה בלוח הזמנים לתחנה הזו).")
             eta.live -> T("Live: the timetable's time moved by how late or early the bus runs now. Its position is ${age ?: 0}s old.", "חי: השעה בלוח הזמנים מותאמת לפי האיחור או ההקדמה של האוטובוס עכשיו. המיקום שלו בן ${age ?: 0} שנ׳.")
             eta.rough -> T("Rough estimate only. The bus hasn't reported lately.", "הערכה גסה בלבד. האוטובוס לא דיווח לאחרונה.")
