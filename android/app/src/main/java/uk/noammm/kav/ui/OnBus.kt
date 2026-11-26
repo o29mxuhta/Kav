@@ -271,8 +271,8 @@ internal fun OnBusCard(model: KavModel, modifier: Modifier = Modifier) {
     }
     // #116, step C: a trip under way names the lines it rides; a bus the phone travels with that isn't one of them is said.
     val expected = model.activeJourney?.trip?.rides?.map { it.shortName.trim() }?.filter { it.isNotEmpty() }?.toSet().orEmpty()
-    Column(modifier.fillMaxWidth().panel(K.rCard).padding(K.gap4), verticalArrangement = Arrangement.spacedBy(K.gap3)) {
-        if (picks.isNotEmpty()) {
+    if (picks.isNotEmpty()) Column(modifier.fillMaxWidth().panel(K.rCard).padding(K.gap4), verticalArrangement = Arrangement.spacedBy(K.gap3)) {
+        run {
             Text(T("It looks like you're on a bus", "נראה שאתם באוטובוס"), style = K.type.headline)
             val wrong = expected.isNotEmpty() && picks.size == 1 && picks[0].line.number.trim() !in expected
             if (wrong) Text(
@@ -296,12 +296,19 @@ internal fun OnBusCard(model: KavModel, modifier: Modifier = Modifier) {
                 Modifier.fillMaxWidth(), style = ButtonStyle.Plain,
             )
         }
-        KavButton(
-            T("I'm already on a bus", "אני כבר באוטובוס"), { start = null; open = true },
-            Modifier.fillMaxWidth(), style = ButtonStyle.Secondary,
-        )
     }
     if (open) OnBusDialog(model, start) { open = false; start = null }
+}
+
+// #100: the "I'm already on a bus" button, on the Lines tab under the search.
+@Composable
+internal fun OnBusButton(model: KavModel, modifier: Modifier = Modifier) {
+    var open by remember { mutableStateOf(false) }
+    KavButton(
+        T("I'm already on a bus", "אני כבר באוטובוס"), { open = true },
+        modifier.fillMaxWidth(), style = ButtonStyle.Secondary,
+    )
+    if (open) OnBusDialog(model, null) { open = false }
 }
 
 @Composable
