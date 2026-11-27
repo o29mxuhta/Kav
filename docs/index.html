@@ -260,8 +260,10 @@ a.go,dialog{background:var(--card);border-color:var(--edge)}a.go:hover,a.go:acti
           step(t("Walk", "הליכה"), null, true, t("Walk ", "הליכה ") + distance(leg.m), [span]);
           shown++;
         } else if (leg.kind === "WAIT") {
-          step(t("Wait", "המתנה"), null, true, t("Wait ", "המתנה ") + span, []);
-          shown++;
+          if (leg.arr - leg.dep >= 30) {
+            step(t("Wait", "המתנה"), null, true, t("Wait ", "המתנה ") + span, []);
+            shown++;
+          }
         } else if (leg.kind === "TAXI") {
           step(t("Taxi", "מונית"), color, false, t("Taxi ", "מונית ") + span, []);
           shown++;
