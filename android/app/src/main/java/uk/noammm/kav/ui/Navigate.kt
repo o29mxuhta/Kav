@@ -95,7 +95,7 @@ internal sealed class Step {
         // The first ride, when the trip starts at its stop with no walk to it, with its wait and leg: the card then names
         // that stop, its number and platform, as a walk's card does.
         val board: Transit.Leg? = null, val boardWait: Transit.Leg? = null, val boardLeg: Int = -1,
-        // #117: the walk to the first ride, when the route begins with one, for the time to leave.
+        // The walk to the first ride, when the route begins with one, for the time to leave.
         val leave: LeavePlan? = null,
     ) : Step()
     class Walk(
@@ -125,6 +125,15 @@ internal sealed class Step {
         // The walk the trip ends with, when it does: the way the place is seen in Street View.
         val walk: List<Pair<Double, Double>> = emptyList(),
     ) : Step()
+}
+
+// Paying at a train station's gates (#126): with several trains to pick from, the train isn't chosen yet, so Rav-Pass opens on
+// its train section with no line; with one, for that train.
+@androidx.compose.runtime.Composable
+internal fun GatesPay(options: List<Pair<Transit.Leg, Transit.Leg?>>, pick: Int, r: Transit.Resolved) {
+    val ride = options[boardingIndex(pick, options.size)].first
+    if (options.size > 1) RidePay(RavPass.Section.TRAIN, false, r.stop(ride.fromStop)?.shown(), null, ride.dep * 1000)
+    else RidePay(ride, r)
 }
 
 internal fun buildSteps(trip: Transit.Itinerary, fromLabel: String, toLabel: String): List<Step> {
@@ -670,9 +679,9 @@ internal fun StepCard(
             } else Text(step.label, style = K.type.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
             val leave = step.leave
             if (leave != null && leaveNowDue(leave, r, chosen, now)) {
-                // #117: the time has come, and it stands out.
+                // The time has come, and it stands out.
                 Text(
-                    T("Leave now", "צאו עכשיו"), style = K.type.headline, color = K.onAccent,
+                    T("Leave now", "יציאה עכשיו"), style = K.type.headline, color = K.onAccent,
                     modifier = Modifier.fillMaxWidth().clip(RoundedCornerShape(K.rTile)).background(K.accent).padding(horizontal = K.gap3, vertical = K.gap2),
                 )
             } else {
@@ -725,7 +734,7 @@ internal fun StepCard(
                 // A train is paid at the station's gates, reached on the way to it: its paying is on this card too.
                 val ride = step.toRide
                 if (pay && ride != null && step.toLeg >= 0 && RavPass.section(ride, r) == RavPass.Section.TRAIN) {
-                    RidePay(boardingChoice(ride, step.toWait, chosen[step.toLeg] ?: 0).first, r)
+                    GatesPay(Transit.boardingOptions(ride, step.toWait), chosen[step.toLeg] ?: 0, r)
                 }
             }
         }
@@ -754,6 +763,11 @@ internal fun StepCard(
                 // Changing trains here: where the next one leaves from, on the card for waiting for it.
                 step.after?.let { trainChange(it, options[pick].first, options[pick].second, r) }?.let {
                     ChangeBlock(it)
+                    Spacer(Modifier.height(K.gap3))
+                }
+                // At a station, before a train is picked: paying at the gates is here too, not only on the walk's card (#126).
+                if (pay && RavPass.section(options[pick].first, r) == RavPass.Section.TRAIN) {
+                    GatesPay(options, chosen[step.legIndex] ?: 0, r)
                     Spacer(Modifier.height(K.gap3))
                 }
                 order.forEachIndexed { place, index ->
