@@ -231,10 +231,10 @@ a.go,dialog{background:var(--card);border-color:var(--edge)}a.go:hover,a.go:acti
         var b = document.createElement("span"); b.className = "badge" + (plain ? " plain" : ""); b.textContent = badge;
         if (color) b.style.setProperty("--route", color);
         var body = document.createElement("div");
-        var h = document.createElement("b"); h.dir = "auto"; h.textContent = title; body.appendChild(h);
+        var h = document.createElement("b"); h.dir = "auto"; h.textContent = title.replace(/_/g, "-"); body.appendChild(h);
         lines.forEach(function (text) {
           if (!text) return;
-          var s = document.createElement("small"); s.dir = "auto"; s.textContent = text; body.appendChild(s);
+          var s = document.createElement("small"); s.dir = "auto"; s.textContent = text.replace(/_/g, "-"); body.appendChild(s);
         });
         li.appendChild(b); li.appendChild(body); stepsList.appendChild(li);
       };
