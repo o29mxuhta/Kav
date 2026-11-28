@@ -133,7 +133,8 @@ fun SettingsScreen(model: KavModel, active: Boolean = true, onClose: () -> Unit)
     ) {
         Column(Modifier.fillMaxWidth().padding(horizontal = K.gap3)) {
             PayingSettings()
-            FareProfileGroup(header = Shown.payments)
+            // With Zuzu the app has no Rav-Pass discount profile to sit beside this, so the page ends at the payment app.
+            if (!PayMode.zuzuOn) FareProfileGroup(header = Shown.payments)
         }
     }
 
