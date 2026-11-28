@@ -8,7 +8,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.animation.animateContentSize
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.material.icons.rounded.OpenInNew
+import androidx.compose.material.icons.automirrored.rounded.OpenInNew
 import androidx.compose.material.icons.rounded.Info
 import androidx.compose.material.icons.rounded.ConfirmationNumber
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
@@ -143,8 +143,8 @@ private fun paidLine(t: Ticket): String? {
 // estimate of its time counts on.
 private fun bandLine(t: Ticket): String? = when {
     t.kind != TicketScreens.Kind.BUS && t.kind != TicketScreens.Kind.LIGHT_RAIL -> null
-    t.band == null -> T("If up to ${Ticket.NEAR_KM} km", "אם עד ${Ticket.NEAR_KM} ק\"מ")
-    else -> T("Up to ${t.band} km", "עד ${t.band} ק\"מ")
+    t.band == null -> T("If up to ${Ticket.NEAR_KM} km", "אם עד ${Ticket.NEAR_KM} ק״מ")
+    else -> T("Up to ${t.band} km", "עד ${t.band} ק״מ")
 }
 
 // How long the ticket is good for, as old Kav's tickets said it ("Valid until 12:39"), and whether it still is: a bus or
@@ -297,7 +297,7 @@ internal fun TicketScreen(t: Ticket, model: uk.noammm.kav.KavModel?, onClose: ()
         KavPart("ticket.header", t, about) { ScreenHeader(kindName(t.kind), back = onClose) }
         Column(
             Modifier.fillMaxSize().verticalScroll(androidx.compose.foundation.rememberScrollState()).padding(horizontal = K.gap4)
-                .padding(top = K.gap2, bottom = K.gap4 + LocalBottomBarInset.current).animateContentSize(),
+                .padding(top = K.gap2, bottom = K.gap4 + LocalBottomBarInset.current).animateContentSize(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)),
             verticalArrangement = Arrangement.spacedBy(K.gap4),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -305,8 +305,8 @@ internal fun TicketScreen(t: Ticket, model: uk.noammm.kav.KavModel?, onClose: ()
             // An extension's ticket without codes has nothing to show here.
             if (codes.isEmpty() && uk.noammm.kav.ExtTickets.mine(t)) Unit
             else if (codes.isEmpty()) Box(Modifier.fillMaxWidth().heightIn(min = 120.dp).panel(K.rTile).padding(K.gap4), contentAlignment = Alignment.Center) {
-                Text(T("The ticket for an inspector is in ${PayApp.current.label()}: open it there, under \"Active travel ticket for inspection\". Once you have, Kav shows it here too.",
-                    "הכרטיס לביקורת נמצא ${PayApp.current.heIn}: פתחו אותו שם, תחת \"כרטיס נסיעה פעילה לביקורת\". אחרי שתפתחו אותו, Kav תציג אותו גם כאן."),
+                Text(T("Open the ticket in ${PayApp.current.label()}, under \"Active travel ticket for inspection\". Kav then shows it here too.",
+                    "פתחו את הכרטיס ${PayApp.current.heIn}, תחת \"כרטיס נסיעה פעילה לביקורת\". אחר כך Kav תציג אותו גם כאן."),
                     style = K.type.body, color = K.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             } else KavPart("ticket.codes", t, { about().put("code", pager.currentPage).put("codes", codes.size) }) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(K.gap2)) {
@@ -323,7 +323,6 @@ internal fun TicketScreen(t: Ticket, model: uk.noammm.kav.KavModel?, onClose: ()
                             }
                             // A bus's, big enough for any reader and small enough to leave the ticket's facts on the screen.
                             else Code(p.code, p.format, Modifier.widthIn(max = 280.dp).fillMaxWidth().clip(RoundedCornerShape(K.rCard)))
-
                         }
                     }
                     // Under the code, what Rav-Pass prints under it: whose it is in a group, and the ticket's number.
@@ -342,7 +341,7 @@ internal fun TicketScreen(t: Ticket, model: uk.noammm.kav.KavModel?, onClose: ()
             }
             if (!uk.noammm.kav.ExtTickets.mine(t)) KavButton(T("Open in ${PayApp.current.label()}", "פתיחה ${PayApp.current.heIn}"), onClick = {
                 if (!uk.noammm.kav.ext.Actions.take(ctx, "ticket.ravpass.open") { about() }) openInRavPass(ctx, t)
-            }, style = ButtonStyle.Secondary, icon = androidx.compose.material.icons.Icons.Rounded.OpenInNew, modifier = Modifier.fillMaxWidth())
+            }, style = ButtonStyle.Secondary, icon = androidx.compose.material.icons.Icons.AutoMirrored.Rounded.OpenInNew, modifier = Modifier.fillMaxWidth())
         }
     }
 }
@@ -376,7 +375,7 @@ private fun TicketValidity(t: Ticket, now: Long) {
                 androidx.compose.animation.fadeOut(androidx.compose.animation.core.tween(120)),
         ) {
             NoteCard(T("Kav's estimate: free transfers for 90 minutes from the first validation. ${PayApp.current.label()} keeps its own time.",
-                "הערכה של Kav: מעברים בחינם במשך 90 דקות מהתיקוף הראשון. ל${PayApp.current.he} יש שעה משלה."),
+                "הערכה של Kav: מעברים בחינם במשך 90 דקות מהתיקוף הראשון. ${PayApp.current.heWith("ל")} יש שעה משלה."),
                 Modifier.padding(end = K.gap2, top = K.gap1, bottom = K.gap2))
         }
         listOfNotNull(bandLine(t), paidLine(t)).takeIf { it.isNotEmpty() }?.let {
