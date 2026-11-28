@@ -25,7 +25,8 @@ android {
         minSdk = 26
         targetSdk = 35
         versionCode = 49
-        versionName = "5.2.1"
+        // #108: a fork build says so (-PkavVersionName=5.2.1-fork.N), so Settings shows the fork, not Noam's 5.2.1.
+        versionName = (project.findProperty("kavVersionName") as String?)?.takeIf { it.isNotBlank() } ?: "5.2.1"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
         // MapLibre's renderer is native code. Every phone Kav can reach is arm64;
         // x86_64 stays so the release APK still installs on the emulator.
@@ -39,6 +40,13 @@ android {
     if (fdroid) {
         for (type in listOf("debug", "release")) sourceSets.getByName(type).manifest.srcFile("src/fdroid/AndroidManifest.xml")
         dependenciesInfo { includeInApk = false; includeInBundle = false }
+    }
+
+    // #108: CI signs debug builds with one fixed key (KAV_DEBUG_KEYSTORE), so each build installs over the last.
+    System.getenv("KAV_DEBUG_KEYSTORE")?.takeIf { it.isNotBlank() }?.let { path ->
+        signingConfigs.getByName("debug").apply {
+            storeFile = file(path); storePassword = "android"; keyAlias = "androiddebugkey"; keyPassword = "android"
+        }
     }
 
     buildTypes {
