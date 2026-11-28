@@ -1105,7 +1105,7 @@ private fun LiveMap(
             val x = if (uk.noammm.kav.ext.NativeMap.hasStopLook) stopRef(st)?.let { uk.noammm.kav.ext.NativeMap.stopLook(it, st.name, st.lat, st.lon) } else null
             val (name, image) = pickedStopMark(x, density)
             images[name] = image
-            MapMarker(st.lat, st.lon, name, alpha = if (st.id == focusStop?.id) 1f else 0f, id = "stop-picked.${st.id}")
+            MapMarker(st.lat, st.lon, name, alpha = if (st.id == focusStop?.id) 1f else 0f, id = "$PICKED_ID${st.id}")
         }
         marks to images
     }
