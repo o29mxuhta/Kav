@@ -1206,7 +1206,8 @@ private class MapCamera {
     suspend fun awaitReturn() { returnMotion?.join() }
     private var placed = false
     fun keep(height: Float) {
-        if (kept == null) kept = (destination ?: value)?.let { keptZoom = framedZoom; Triple(it, manual, if (ref > 0f) ref else height) }
+        // Moved by hand counts too if the map is still going back to where the hand left it (back's handBack).
+        if (kept == null) kept = (destination ?: value)?.let { keptZoom = framedZoom; Triple(it, manual || handBack, if (ref > 0f) ref else height) }
     }
     fun back(height: Float, scope: CoroutineScope) {
         val (place, hand, from) = kept ?: return
@@ -1219,8 +1220,12 @@ private class MapCamera {
         manual = false
         val going = animation
         returnMotion = going
-        if (hand) if (going?.isActive == true) going.invokeOnCompletion { if (it == null) manual = true } else manual = true
+        // Only if that move ends where it was going: another vehicle tapped meanwhile takes the move over (moveTo's new
+        // goal), and its end then turned manual mode on over the new frame, showing Recenter and keeping the line out.
+        handBack = hand
+        if (hand) if (going?.isActive == true) going.invokeOnCompletion { if (it == null && handBack) manual = true; handBack = false } else manual = true
     }
+    private var handBack = false
 
     // Moved there as a hand would have (a merged mark tapped, LiveGroups): the map then stays where it's put.
     fun zoomAt(lat: Double, lon: Double, zoom: Float, scope: CoroutineScope) {
@@ -1254,6 +1259,7 @@ private class MapCamera {
     }
 
     private fun moveTo(target: Camera, scope: CoroutineScope, duration: Int = this.duration) {
+        handBack = false
         stopFollowing()
         takePending()
         (destination ?: value)?.let { d ->
@@ -2010,14 +2016,16 @@ fun TileMap(
             try {
                 // A whole still once the map rests, for what stands in for it while its page comes or goes (MapVeil) or its
                 // surface is away; none while it moves, as a copy over a moving map is always behind it (the glass over a
-                // map shows the live map through its tint instead, liquidPane).
+                // map shows the live map through its tint instead, liquidPane). The rider's arrow turning doesn't count as
+                // moving: in the hand it's hardly ever still, so the still waited for it for seconds, and a page opening
+                // over Home showed the arrow turned the way it had been then.
                 var seen = cameraMoves.intValue
                 var movedAt = 0L
                 var wholeAt = -1L
                 while (true) {
                     val now = android.os.SystemClock.uptimeMillis()
                     if (cameraMoves.intValue != seen) { seen = cameraMoves.intValue; movedAt = now; wholeAt = -1L }
-                    val resting = now - movedAt >= STILL_REST_MS && !touching.value && !turning.value
+                    val resting = now - movedAt >= STILL_REST_MS && !touching.value
                     if (resting && (wholeAt < 0 || changed[0] && now - wholeAt >= STILL_EVERY_MS)) {
                         changed[0] = false
                         still.take(surface, still.size.width, still.size.height)?.let { still.image = it }
@@ -2329,7 +2337,17 @@ fun TileMap(
     // the next change came, while the ones that stay keep still. A dot is the same one while it keeps its place and
     // size, so new colours show at once. Its fade is drawn into it, in its place in the list, the ones going under the
     // rest, so every update of the map is whole and keeps the order.
-    val liveNow by rememberUpdatedState(remember(live) { live?.oneHaloSize() })
+    // The rider's arrow turned the way the camera follows (the map turned their way) is drawn up the screen while it
+    // follows: the camera eases into each turn and the arrow didn't, so it swung off up and back at every one.
+    val upBearing = cameraFollow?.takeIf { !camera.manual }?.let { ((it.bearing % 360f) + 360f) % 360f }
+    val liveNow by rememberUpdatedState(remember(live, upBearing) {
+        live?.oneHaloSize()?.let { g ->
+            if (upBearing == null) g
+            else g.copy(markers = g.markers.map { m ->
+                if (m.id == "me" && m.turns && ((m.rotation % 360f) + 360f) % 360f == upBearing) m.copy(rotation = 0f, turns = false) else m
+            })
+        }
+    })
     val dots by rememberUpdatedState(geometry?.dots)
     val dotsSentNow by rememberUpdatedState(onDotsSent)
     LaunchedEffect(style) {
@@ -2553,7 +2571,9 @@ fun TileMap(
                 // same: it leaves the map less to lay out for those frames, not more.
                 val fewer = g.together && g.markers.size * 2 < liveMarks
                 liveMarks = g.markers.size
-                while (settling && !fewer) {
+                // A stop picked or let go goes at once too, its ring with the tap rather than after the card it opens.
+                val picking = g.markers.any { m -> m.id?.startsWith(PICKED_ID) == true && m.alpha != (shownAlpha[m.id] ?: 0f) }
+                while (settling && !fewer && !picking) {
                     snapshotFlow { settling }.first { !it }
                     kotlinx.coroutines.delay(150)
                 }
@@ -2627,7 +2647,8 @@ fun TileMap(
                 val fading = glide && scale > 0f && update.halos.count { it.alpha > 0f } <= CROWD
                 val fades = HashMap<String, Pair<Float, Float>>()
                 if (g.together && fading) {
-                    for (m in update.markers) m.id?.let { id -> val was = shownAlpha[id] ?: 0f; if (was != m.alpha) fades[id] = was to m.alpha }
+                    // A picked stop's ring doesn't fade: it's there in the first step, sent at once, as the stop is tapped.
+                    for (m in update.markers) m.id?.let { id -> val was = shownAlpha[id] ?: 0f; if (was != m.alpha && !id.startsWith(PICKED_ID)) fades[id] = was to m.alpha }
                     for (d in update.halos) d.id?.let { id -> val was = shownAlpha[id] ?: 0f; if (was != d.alpha) fades[id] = was to d.alpha }
                 }
                 shownAlpha.clear()
@@ -3207,6 +3228,8 @@ private fun MapGeometry.sameButRider(o: MapGeometry): Boolean {
 
 // The start of a group's mark id (LiveGroups): one mark for the vehicles merged there.
 internal const val GROUP_ID = "grp."
+// The start of a picked stop's mark id (LiveScreen).
+internal const val PICKED_ID = "stop-picked."
 // How long the camera rests before its zoom is told (onZoom): a move or a glide in between changes nothing.
 private const val ZOOM_TOLD_AFTER_MS = 150L
 

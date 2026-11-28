@@ -15,6 +15,9 @@ class KavApp : Application() {
         if (BuildConfig.DEBUG) runCatching {
             Class.forName("uk.noammm.kav.ext.Fixtures").getMethod("keys", android.content.Context::class.java).invoke(null, this)
         }
+        // The screen parts' counts are Compose state, so they're made here, before any screen is composed: made first by
+        // the extensions' own thread while the first screen composed, that screen couldn't read them and Kav closed.
+        uk.noammm.kav.ext.Parts.remade("")
         // Extensions: safe mode, the crash count and the rider's picks, only once something was added (ExtApp).
         if (java.io.File(filesDir, "ext").isDirectory) uk.noammm.kav.ext.ExtApp.start(this)
         // Debug builds only: the extension test fixtures, when a test put their file in place (src/debug, Fixtures.kt).

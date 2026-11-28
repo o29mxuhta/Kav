@@ -444,10 +444,10 @@ fun Modifier.groupItem(first: Boolean, last: Boolean, inset: Dp = K.gap4): Modif
         val radius = r.toPx()
         val top = if (first) 0f else -radius * 2 - 8.dp.toPx()
         val bottom = if (last) size.height else size.height + radius * 2 + 8.dp.toPx()
-        val edge = outlineOf(style, RoundRect(0f, top, size.width, bottom, CornerRadius(radius)), line, card = true)
+        val edge = kept(style, outlineOf(style, RoundRect(0f, top, size.width, bottom, CornerRadius(radius)), line, card = true).over)
         onDrawWithContent {
             drawContent()
-            edge.over(this)
+            edge()
             divider(.5.dp.toPx())
         }
     }
