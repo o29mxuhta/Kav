@@ -96,14 +96,15 @@ internal fun RavPassUpdatedLine(home: Boolean) {
     var unchecked by remember { mutableStateOf(false) }
     var tapped by remember { mutableLongStateOf(0L) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    LaunchedEffect(lifecycle) {
+    // Again when the rider switches payment app: the other app's version.
+    LaunchedEffect(lifecycle, PayApp.current) {
         lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             unchecked = !RavPassVersion.checked(RavPassVersion.name(ctx)); tapped = Prefs.payTappedAt(ctx)
         }
     }
     if (!unchecked || home && !RavPassVersion.missed(TicketStore.kept, tapped, System.currentTimeMillis())) return
-    val text = T("${PayApp.current.label()} has updated, so tickets may not show in Kav until Kav's next update.",
-        "${PayApp.current.he} התעדכנה, ולכן ייתכן שכרטיסים לא יוצגו ב-Kav עד העדכון הבא של Kav.")
+    val text = T("${PayApp.current.label()} has updated: tickets may not show until Kav updates too.",
+        "${PayApp.current.he} התעדכנה: ייתכן שכרטיסים לא יוצגו עד שגם Kav תתעדכן.")
     if (home) {
         Separator()
         Text(text, style = K.type.subhead, modifier = Modifier.padding(horizontal = K.gap4, vertical = K.gap3))
