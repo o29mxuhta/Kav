@@ -49,6 +49,11 @@ import androidx.compose.material.icons.rounded.MyLocation
 import androidx.compose.material.icons.rounded.Notifications
 import androidx.compose.material.icons.rounded.Map
 import androidx.compose.material.icons.rounded.Place
+import androidx.compose.material.icons.rounded.PhotoCamera
+import androidx.compose.material.icons.rounded.AddRoad
+import androidx.compose.material.icons.rounded.History
+import androidx.compose.material.icons.rounded.Navigation
+import androidx.compose.material.icons.rounded.Widgets
 import androidx.compose.material.icons.rounded.Timeline
 import androidx.compose.material.icons.rounded.Storage
 import androidx.compose.material.icons.rounded.SwapHoriz
@@ -56,6 +61,7 @@ import androidx.compose.material.icons.rounded.SwapVert
 import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.TouchApp
 import androidx.compose.material.icons.rounded.Build
+import androidx.compose.material.icons.rounded.Screenshot
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -70,6 +76,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.scale
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
@@ -89,7 +96,6 @@ import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import uk.noammm.kav.ext.Capabilities
@@ -154,16 +160,18 @@ private fun initial(name: String): String {
     return "?"
 }
 
-// A source's picture in a circle: the picture its bundle brings (bytes, while it's offered and not added yet), else the
-// file SourceImages keeps (null for none, as for a file import); its name's first letter on a quiet tile until there is
-// one, and whenever it can't be read.
+// A source's picture on a rounded square with the corners of Kav's own icon in the app (a quarter of its side, as
+// Update's AppIcon): the picture its bundle brings (bytes, while it's offered and not added yet), else the file
+// SourceImages keeps (null for none, as for a file import); its name's first letter on a quiet tile until there is one,
+// and whenever it can't be read.
 @Composable
 internal fun SourceAvatar(file: File?, name: String, size: Dp, modifier: Modifier = Modifier, kav: Boolean = false, bytes: ByteArray? = null) {
-    // Kav's own sources wear Kav's icon.
+    val shape = RoundedCornerShape(size / 4)
+    // Kav's own sources wear Kav's icon, drawn as Kav draws it elsewhere.
     if (kav) {
-        Box(modifier.size(size).clip(CircleShape)) {
-            Image(androidx.compose.ui.res.painterResource(uk.noammm.kav.R.drawable.ic_launcher_background), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-            Image(androidx.compose.ui.res.painterResource(uk.noammm.kav.R.drawable.ic_launcher_foreground), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+        Box(modifier.size(size).clip(shape)) {
+            Image(androidx.compose.ui.res.painterResource(uk.noammm.kav.R.drawable.ic_launcher_background), null, Modifier.fillMaxSize().scale(1.5f))
+            Image(androidx.compose.ui.res.painterResource(uk.noammm.kav.R.drawable.ic_launcher_foreground), null, Modifier.fillMaxSize().scale(1.5f))
         }
         return
     }
@@ -174,7 +182,7 @@ internal fun SourceAvatar(file: File?, name: String, size: Dp, modifier: Modifie
         if (stamp != null && value == null) value = withContext(Dispatchers.IO) { if (bytes != null) Avatars.decode(bytes, stamp, px) else file?.let { Avatars.decode(it, stamp, px) } }
         if (stamp == null) value = null
     }
-    Box(modifier.size(size).clip(CircleShape).background(K.surface3), contentAlignment = Alignment.Center) {
+    Box(modifier.size(size).clip(shape).background(K.surface3), contentAlignment = Alignment.Center) {
         val img = image
         if (img != null) Image(img, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
         else Text(initial(name), style = K.type.headline.copy(fontSize = (size.value * .4f).sp, lineHeight = (size.value * .5f).sp), color = K.textSecondary)
@@ -182,7 +190,7 @@ internal fun SourceAvatar(file: File?, name: String, size: Dp, modifier: Modifie
 }
 
 // An extension's own picture (Manifest.icon) on a rounded square, as an app's is, from the installed package (file) or
-// from the package being offered (bytes); without one, the mark of what it adds on a quiet tile. A source's is round.
+// from the package being offered (bytes); without one, the mark of what it adds on a quiet tile.
 @Composable
 internal fun ExtTile(file: File?, bytes: ByteArray?, capabilities: List<String>, size: Dp, modifier: Modifier = Modifier) {
     ExtUi.tick
@@ -203,25 +211,34 @@ internal fun ExtTile(file: File?, bytes: ByteArray?, capabilities: List<String>,
 
 // The picture, the name under it and a small line under that, in the middle: the top of the add popup, the install
 // sheet and the pages. Room under the picture; the name and its line kept close, as one block.
+@OptIn(androidx.compose.foundation.layout.ExperimentalLayoutApi::class)
 @Composable
-internal fun CentredHeader(avatar: @Composable () -> Unit, title: String, subtitle: String?, kav: Boolean? = null) {
+internal fun CentredHeader(avatar: @Composable () -> Unit, title: String, subtitle: String?, kav: Boolean? = null, version: String? = null) {
     Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(2.dp)) {
         avatar()
-        Text(title, style = K.type.title, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = K.gap4))
+        // An extension's version follows its name, small and quiet, in the same line of text so it wraps with it.
+        Text(
+            buildAnnotatedString {
+                val v = version?.takeIf { it.isNotEmpty() }
+                // Kept to itself beside the version, so in Hebrew the version still comes after the name.
+                append(if (v != null) T.iso(title) else title)
+                if (v != null) withStyle(SpanStyle(fontSize = K.type.subhead.fontSize, fontWeight = FontWeight.Normal, color = K.textTertiary)) { append("  " + T.ltr(v)) }
+            },
+            style = K.type.title, textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = Modifier.padding(top = K.gap4),
+        )
         // Who it comes from, in the same short line: its source, then a shield and whose it is (kav: Kav's own; false:
         // someone else's). The shield is the line's only colour.
         if (kav == null) subtitle?.let { Text(it, style = K.type.subhead, textAlign = TextAlign.Center, maxLines = 3, overflow = TextOverflow.Ellipsis) }
-        else Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(K.gap1)) {
-            subtitle?.let { Text(T.iso(it) + "  ·", style = K.type.subhead, maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f, fill = false)) }
-            Icon(if (kav) Icons.Rounded.VerifiedUser else Icons.Rounded.GppMaybe, null, tint = if (kav) K.accent else K.problem, modifier = Modifier.size(16.dp))
-            Text(if (kav) T("Made by Kav", "נוצר על ידי Kav") else T("Third-party", "צד שלישי"), style = K.type.subhead, maxLines = 1)
+        // Never cut: when the source doesn't fit beside them, the shield and whose it is go to a line of their own under it.
+        else androidx.compose.foundation.layout.FlowRow(horizontalArrangement = Arrangement.spacedBy(K.gap1, Alignment.CenterHorizontally)) {
+            subtitle?.let { Text(T.iso(it) + "  ·", style = K.type.subhead, textAlign = TextAlign.Center) }
+            Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(K.gap1)) {
+                Icon(if (kav) Icons.Rounded.VerifiedUser else Icons.Rounded.GppMaybe, null, tint = if (kav) K.accent else K.problem, modifier = Modifier.size(16.dp))
+                Text(if (kav) T("Made by Kav", "נוצר על ידי Kav") else T("Third-party", "צד שלישי"), style = K.type.subhead, maxLines = 1)
+            }
         }
     }
 }
-
-// The long sentence behind "Third-party", for Details: whose it is, said once in full.
-@Composable
-internal fun ThirdPartyFact() = Text(T("Not made or reviewed by Kav.", "לא נוצר ולא נבדק על ידי Kav."), style = K.type.subhead, color = K.textSecondary)
 
 // The last row of a header card, under a hairline: it opens what most riders don't need (keys, addresses, the version).
 // The same height and padding as the rows of Kav's grouped cards.
@@ -379,7 +396,7 @@ private fun NoticeRow(icon: ImageVector, text: String) {
 // a short screen).
 @Composable
 internal fun Popup(onDismiss: () -> Unit, buttons: @Composable () -> Unit, content: @Composable ColumnScope.() -> Unit) {
-    Dialog(onDismissRequest = onDismiss) {
+    StartDialog(onDismissRequest = onDismiss) {
         Column(Modifier.fillMaxWidth().panel(K.rCard, solid = true).padding(K.gap5), verticalArrangement = Arrangement.spacedBy(K.gap4)) {
             Column(Modifier.weight(1f, fill = false).verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(K.gap4), content = content)
             buttons()
@@ -394,6 +411,7 @@ internal fun listingIcon(capabilities: List<String>): ImageVector = when {
     Capabilities.BOARD in capabilities -> Icons.Rounded.DepartureBoard
     "slot.home" in capabilities || PageSpecs.HOME in capabilities -> Icons.Rounded.Home
     Looks.CAPABILITY in capabilities -> Icons.Rounded.Palette
+    uk.noammm.kav.ext.Widgets.CAPABILITY in capabilities -> Icons.Rounded.Widgets
     PageSpecs.PAGE in capabilities -> Icons.Rounded.Dashboard
     "slot.results" in capabilities -> Icons.AutoMirrored.Rounded.List
     "slot.trip" in capabilities -> Icons.Rounded.Timeline
@@ -407,6 +425,11 @@ internal fun listingIcon(capabilities: List<String>): ImageVector = when {
 private fun kindIcon(cap: String): ImageVector = when (cap) {
     Capabilities.PLAN -> Icons.Rounded.Route
     Capabilities.BOARD -> Icons.Rounded.DepartureBoard
+    uk.noammm.kav.ext.StopPhotoHook.CAPABILITY -> Icons.Rounded.PhotoCamera
+    uk.noammm.kav.ext.TripButtons.CAPABILITY -> Icons.Rounded.Notifications
+    uk.noammm.kav.ext.KavPlans.ADD -> Icons.Rounded.AddRoad
+    uk.noammm.kav.ext.TripAccess.HISTORY -> Icons.Rounded.History
+    uk.noammm.kav.ext.TripAccess.FOLLOW -> Icons.Rounded.Navigation
     Pipeline.WALK -> Icons.AutoMirrored.Rounded.DirectionsWalk
     Pipeline.TRANSFER -> Icons.Rounded.SwapHoriz
     Pipeline.FILTER -> Icons.Rounded.FilterList
@@ -417,6 +440,11 @@ private fun kindIcon(cap: String): ImageVector = when (cap) {
 private fun kindWords(cap: String) = when (cap) {
     Capabilities.PLAN -> T("Trip planner", "מתכנן מסלולים")
     Capabilities.BOARD -> T("Provides timetables and stop boards", "מספק לוחות זמנים ולוחות תחנה")
+    uk.noammm.kav.ext.StopPhotoHook.CAPABILITY -> T("Stop photos", "תמונות של תחנות")
+    uk.noammm.kav.ext.TripButtons.CAPABILITY -> T("Buttons on the trip's notification", "כפתורים בהתראת הנסיעה")
+    uk.noammm.kav.ext.KavPlans.ADD -> T("Adds routes to your results", "מוסיף מסלולים לתוצאות")
+    uk.noammm.kav.ext.TripAccess.HISTORY -> T("Trip history", "היסטוריית נסיעות")
+    uk.noammm.kav.ext.TripAccess.FOLLOW -> T("Your trips", "הנסיעות שלכם")
     Pipeline.WALK -> T("Walking model", "מודל הליכה")
     Pipeline.TRANSFER -> T("Transfer rule", "כלל החלפות")
     Pipeline.FILTER -> T("Route filter", "מסנן מסלולים")
@@ -447,10 +475,12 @@ private fun lineIcon(l: ExtUses.Line): ImageVector = when (l.what) {
     ExtUses.What.SLOT_RESULTS -> Icons.AutoMirrored.Rounded.List
     ExtUses.What.SLOT_TRIP -> Icons.Rounded.Timeline
     ExtUses.What.SLOT_STOP -> Icons.Rounded.Place
+    ExtUses.What.WIDGETS -> Icons.Rounded.Widgets
     ExtUses.What.ADDS -> addIcon(l.detail.first())
     ExtUses.What.ACTIONS -> Icons.Rounded.TouchApp
     ExtUses.What.PARTS -> Icons.Rounded.Dashboard
     ExtUses.What.HOOKS -> Icons.Rounded.Build
+    ExtUses.What.SEES_SCREEN -> Icons.Rounded.Screenshot
 }
 
 // An action an extension takes over (ext/Actions.kt), as a few words.
@@ -498,6 +528,14 @@ private fun actionWords(name: String) = when (name) {
     "pay.place.open" -> T("opening ${PayApp.current.en}'s pages", "פתיחת עמודים ${PayApp.current.heIn}")
     "pay.history.clear" -> T("clearing ride history", "מחיקת היסטוריית הנסיעות")
     "ticket.ravpass.open" -> T("showing tickets in ${PayApp.current.label()}", "הצגת כרטיסים ${PayApp.current.heIn}")
+    "live.vehicle.open" -> T("opening vehicles on Live", "פתיחת כלי רכב בזמן אמת")
+    "live.stop.open" -> T("opening stops on Live", "פתיחת תחנות בזמן אמת")
+    "stop.alerts.open" -> T("opening a stop's line alerts", "פתיחת התראות הקווים של תחנה")
+    "line.alerts.save" -> T("saving line alerts", "שמירת התראות קווים")
+    "line.getoff" -> T("getting off a line", "ירידה מקו")
+    "report.send" -> T("sending reports", "שליחת דיווחים")
+    "place.pick" -> T("choosing places", "בחירת מקומות")
+    "link.open" -> T("opening trip links", "פתיחת קישורים לנסיעות")
     else -> T.ltr(name)
 }
 
@@ -523,10 +561,11 @@ private fun partWords(name: String) = when (name) {
     "settings.page.header" -> T("Settings headers", "כותרות בהגדרות")
     "settings.page.trips" -> T("trip settings", "הגדרות נסיעות")
     "settings.page.paying" -> T("payment settings", "הגדרות תשלום")
-    "settings.page.live" -> T("live times and planner settings", "הגדרות זמני הגעה ומתכננים")
-    "settings.page.look" -> T("look and language settings", "הגדרות מראה ושפה")
+    "settings.page.live" -> T("live times and trips settings", "הגדרות זמן אמת ומסלולים")
+    "settings.page.look" -> T("look settings", "הגדרות מראה")
+    "settings.page.language" -> T("language and time settings", "הגדרות שפה ושעה")
     "settings.page.map" -> T("map settings", "הגדרות מפה")
-    "settings.page.privacy" -> T("privacy and sharing settings", "הגדרות פרטיות ושיתוף")
+    "settings.page.privacy" -> T("privacy settings", "הגדרות פרטיות")
     "settings.page.extensions" -> T("extension settings", "הגדרות תוספים")
     "settings.page.kav" -> T("Kav settings", "הגדרות Kav")
     "pay.history.header" -> T("the ride history header", "כותרת היסטוריית הנסיעות")
@@ -551,10 +590,31 @@ private fun partWords(name: String) = when (name) {
     "nav.header" -> T("the top of a trip under way", "החלק העליון של נסיעה בדרך")
     "nav.problem" -> T("problems on the way", "בעיות בדרך")
     "nav.card" -> T("a trip's step cards", "כרטיסי השלבים של נסיעה")
+    "nav.wait.details" -> T("each line on a trip's waiting card", "כל קו בכרטיס ההמתנה של נסיעה")
+    "nav.ride.details" -> T("the line on a trip's riding card", "הקו בכרטיס הנסיעה")
+    "nav.banner" -> T("under a trip's step dots", "מתחת לנקודות השלבים של נסיעה")
+    "ride.pay" -> T("paying for each ride of a trip", "התשלום על כל נסיעה במסלול")
     "share.targets" -> T("ways to share a trip", "דרכים לשתף נסיעה")
     "ticket.codes" -> T("ticket codes", "קודי כרטיסים")
     "pay.setup" -> T("setting up paying", "הגדרת התשלום")
     "tabbar" -> T("the tab bar", "סרגל הלשוניות")
+    "stops.row" -> T("stops in the Stops tab", "תחנות בלשונית התחנות")
+    "stop.departure" -> T("departures on stop boards", "יציאות בלוחות תחנה")
+    "stop.alerts" -> T("a stop's line alerts", "התראות הקווים של תחנה")
+    "lines.row" -> T("lines in the Lines tab", "קווים בלשונית הקווים")
+    "line.live" -> T("a line's next departures", "היציאות הבאות של קו")
+    "line.map" -> T("a line's map", "המפה של קו")
+    "line.stop" -> T("the stops on a line's page", "התחנות בעמוד של קו")
+    "live.list" -> T("the Live list", "הרשימה בזמן אמת")
+    "live.vehicle" -> T("vehicle cards on Live", "כרטיסי כלי רכב בזמן אמת")
+    "live.stop" -> T("stop cards on Live", "כרטיסי תחנות בזמן אמת")
+    "home.nearest" -> T("Home's nearest station", "התחנה הקרובה במסך הבית")
+    "results.empty" -> T("notes when no routes show", "הודעות כשאין מסלולים")
+    "results.hidden" -> T("hidden routes", "מסלולים מוסתרים")
+    "alert.sheet" -> T("service alert details", "פרטי הודעות שירות")
+    "report.step" -> T("the report form", "טופס הדיווח")
+    "search.result" -> T("place search results", "תוצאות חיפוש מקומות")
+    uk.noammm.kav.ext.ScreenPieces.PART -> T("over the whole screen", "מעל כל המסך")
     else -> T.ltr(name)
 }
 
@@ -591,6 +651,7 @@ internal fun lineWords(l: ExtUses.Line): String {
         ExtUses.What.SLOT_RESULTS -> T("Can add a line to your trip results", "יכול להוסיף שורה לתוצאות החיפוש שלכם")
         ExtUses.What.SLOT_TRIP -> T("Can add a part to a trip's page", "יכול להוסיף חלק לעמוד של נסיעה")
         ExtUses.What.SLOT_STOP -> T("Can add a row to stop boards", "יכול להוסיף שורה ללוחות תחנה")
+        ExtUses.What.WIDGETS -> T("Adds widgets to your home screen", "מוסיף ווידג׳טים למסך הבית שלכם")
         ExtUses.What.ADDS -> when (l.detail.first()) {
             "map" -> T("Draws on Kav's maps", "מצייר על המפות של Kav")
             "notifications" -> T("Sends notifications", "שולח התראות")
@@ -600,12 +661,9 @@ internal fun lineWords(l: ExtUses.Line): String {
         ExtUses.What.ACTIONS -> T("Takes over: ", "לוקח על עצמו: ") + l.detail.joinToString(list, transform = ::actionWords)
         ExtUses.What.PARTS -> T("Changes parts of Kav's screens: ", "משנה חלקים במסכים של Kav: ") + l.detail.joinToString(list, transform = ::partWords)
         ExtUses.What.HOOKS -> T("Changes how Kav itself works", "משנה את האופן שבו Kav עצמה פועלת")
+        ExtUses.What.SEES_SCREEN -> T("Sees a picture of Kav's screen, without what you type", "רואה תמונה של המסך של Kav, בלי מה שאתם מקלידים")
     }
 }
-
-// Publisher text set apart inside Kav's words: isolated, in quotes. Straight quotes in Hebrew, as Kav's Hebrew uses them
-// (curly ones come out the wrong way round around a Hebrew name); the text can't hold either kind (Names.clean).
-internal fun quoted(s: String) = if (T.rtl) T.iso("\"$s\"") else "\u2068\u201c$s\u201d\u2069"
 
 // The publisher's explanation of a line, in Kav's language, else the other one.
 private fun noteOf(l: ExtUses.Line): String? = l.note?.let { (en, he) -> (if (T.rtl) he.ifEmpty { en } else en.ifEmpty { he }).ifEmpty { null } }
@@ -614,15 +672,20 @@ private fun noteOf(l: ExtUses.Line): String? = l.note?.let { (en, he) -> (if (T.
 // capabilities its listing or manifest names. As many as fit a line, then how many more, so nothing is cut.
 // An installed extension's row line: what it adds (its manifest's parts, its tab, settings it declares, and what it says
 // it adds), else its own short description.
-internal fun rowWords(m: uk.noammm.kav.ext.Manifest): String {
+internal fun rowWords(m: uk.noammm.kav.ext.Manifest, room: Int = ROW_ROOM): String {
     val decl = runCatching { PageSpecs.of(m) }.getOrNull()
     val tab = decl?.tabs?.isNotEmpty() == true
     // Its own screens go without saying once one of them is a tab.
     val caps = m.contributions.map { it.capability }.filter { !(tab && it == PageSpecs.PAGE) }
-    return listingWords(caps, m.adds.filter { it != "settings" }, tab).ifEmpty { T.iso(m.description.substringBefore(". ").take(60)) }
+    return listingWords(caps, m.adds.filter { it != "settings" }, tab, room).ifEmpty { T.iso(m.description.substringBefore(". ")) }
 }
 
-internal fun listingWords(capabilities: List<String>, adds: List<String> = emptyList(), tab: Boolean = false): String {
+// How many characters of these words fit one line beside a row's switch on a 360 dp wide screen, in either language, and
+// beside its settings button too.
+internal const val ROW_ROOM = 27
+internal const val ROW_ROOM_WITH_SETTINGS = 16
+
+internal fun listingWords(capabilities: List<String>, adds: List<String> = emptyList(), tab: Boolean = false, room: Int = ROW_ROOM): String {
     // Its maps first (what a rider sees most), then what the manifest's parts are, its tab, then settings.
     val all = adds.filter { it != "settings" }.map(::addWord) + capabilities.distinct().map {
         when (it) {
@@ -633,8 +696,10 @@ internal fun listingWords(capabilities: List<String>, adds: List<String> = empty
             "slot.results" -> T("Results line", "שורה בתוצאות")
             "slot.trip" -> T("Trip page", "עמוד נסיעה")
             "slot.stop" -> T("Stop boards", "לוחות תחנה")
+            uk.noammm.kav.ext.Widgets.CAPABILITY -> T("Widgets", "ווידג׳טים")
             "action.pay" -> T("Paying", "תשלום")
             uk.noammm.kav.ext.MethodHooks.CAPABILITY -> T("Changes Kav", "משנה את Kav")
+            uk.noammm.kav.ext.ScreenPieces.CAPABILITY -> T("Sees the screen", "רואה את המסך")
             Capabilities.BOARD -> T("Timetables", "לוחות זמנים")
             else -> when {
                 it.startsWith("action.") -> actionWords(it.removePrefix("action.")).replaceFirstChar { c -> c.uppercase() }
@@ -645,20 +710,27 @@ internal fun listingWords(capabilities: List<String>, adds: List<String> = empty
     } + listOfNotNull(
         if (tab) T("Tab", "לשונית") else null,
     )
-    // As many as fit one line, with no count of the rest.
+    // As many as fit one line (room, the dots between them counted), with no count of the rest; each kept whole, so a
+    // narrower screen breaks the line between them, never inside one.
     var shown = 0
     var length = 0
     for (w in all) {
-        if (shown >= 3 || (shown > 0 && length + w.length > 30)) break
-        shown++; length += w.length
+        val more = if (shown > 0) w.length + 3 else w.length
+        if (shown >= 3 || (shown > 0 && length + more > room)) break
+        shown++; length += more
     }
-    return all.take(shown).joinToString(" · ") { T.iso(it) }
+    return all.take(shown).joinToString(" · ") { T.iso(it.replace(' ', '\u00A0')) }
 }
 
 // A line's short label, for the list of what an extension can do: Kav's words, a few of them.
 internal fun lineLabel(l: ExtUses.Line): String {
     return when (l.what) {
-        ExtUses.What.KIND -> if (l.detail.first() == Capabilities.BOARD) T("Timetables and stop boards", "לוחות זמנים ולוחות תחנה") else kindWords(l.detail.first())
+        ExtUses.What.KIND -> when (l.detail.first()) {
+            Capabilities.BOARD -> T("Timetables and stop boards", "לוחות זמנים ולוחות תחנה")
+            uk.noammm.kav.ext.TripAccess.HISTORY -> T("Reads your recent trips, if you allow it", "קורא את הנסיעות האחרונות שלכם, אם תאשרו")
+            uk.noammm.kav.ext.TripAccess.FOLLOW -> T("Follows the trips you take, if you allow it", "עוקב אחרי הנסיעות שלכם, אם תאשרו")
+            else -> kindWords(l.detail.first())
+        }
         ExtUses.What.KEEPS_DATA -> T("Keeps data on this phone", "שומר מידע בטלפון הזה")
         ExtUses.What.SCREENS -> T("Own screens", "מסכים ייעודיים")
         ExtUses.What.TAB -> T("A tab you can pin", "לשונית שאפשר להצמיד")
@@ -666,9 +738,11 @@ internal fun lineLabel(l: ExtUses.Line): String {
         ExtUses.What.SLOT_RESULTS -> T("Line on trip results", "שורה בתוצאות החיפוש")
         ExtUses.What.SLOT_TRIP -> T("Part on a trip's page", "חלק בעמוד של נסיעה")
         ExtUses.What.SLOT_STOP -> T("Row on stop boards", "שורה בלוחות תחנה")
+        ExtUses.What.WIDGETS -> T("Home screen widgets", "ווידג׳טים למסך הבית")
         ExtUses.What.ADDS -> addWord(l.detail.first())
         ExtUses.What.ACTIONS -> T("Takes over actions", "לוקח על עצמו פעולות")
         ExtUses.What.PARTS -> T("Changes screen parts", "משנה חלקי מסכים")
+        ExtUses.What.SEES_SCREEN -> T("Sees a picture of the screen", "רואה תמונה של המסך")
         else -> lineWords(l)
     }
 }
