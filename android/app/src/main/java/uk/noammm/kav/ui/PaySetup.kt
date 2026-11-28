@@ -117,11 +117,14 @@ internal fun PaySetupHost() {
         }
         Column(Modifier.fillMaxWidth(), horizontalAlignment = Alignment.CenterHorizontally) {
             Spacer(Modifier.height(K.gap2))
-            RavPassLogo()
+            RavPassLogo(installed)
             Spacer(Modifier.height(K.gap4))
             // Which app this setup is for, here too: switching swaps the logo, the store page and what the phone is
             // checked for (rememberRavPass re-reads), and with nothing missing the flow finishes by itself.
-            if (page != Page.DONE) PayAppChoice()
+            if (page != Page.DONE) {
+                PayAppChoice()
+                Spacer(Modifier.height(K.gap4))
+            }
             AnimatedContent(
                 page,
                 transitionSpec = {
@@ -153,8 +156,8 @@ internal fun PaySetupHost() {
                     }
                 }
             }
-            AnimatedVisibility(page != Page.DONE && page != Page.READER, enter = fadeIn(tween(200)) + expandVertically(),
-                exit = fadeOut(tween(150)) + shrinkVertically()) {
+            AnimatedVisibility(page != Page.DONE && page != Page.READER, enter = fadeIn(tween(200, delayMillis = 60)) + expandVertically(spring(dampingRatio = 1f, stiffness = 500f)),
+                exit = fadeOut(tween(150)) + shrinkVertically(spring(dampingRatio = 1f, stiffness = 500f))) {
                 Column(Modifier.fillMaxWidth().padding(top = K.gap2)) {
                     KavButton(T("Not now", "לא עכשיו"), onClick = { close { PaySetup.hide(); PayMode.refresh(ctx) } },
                         style = ButtonStyle.Secondary, wide = true)
@@ -170,17 +173,38 @@ internal fun PaySetupHost() {
 }
 
 // The chosen payment app's mark as a launcher shows it: Rav-Pass's own launcher icon (its foreground on its white
-// background, cropped to the middle 72 of its 108 dp; scaled at any other size). egg has no icon of Kav's to show yet,
-// so a QR mark in Kav's accent stands in for it.
+// background, cropped to the middle 72 of its 108 dp; scaled at any other size), and egg's icon from the phone, filling
+// the square the same way (squareIcon()). A QR mark in Kav's accent stands in for egg while it isn't installed.
 @Composable
-internal fun RavPassLogo(size: androidx.compose.ui.unit.Dp = 72.dp) {
+internal fun RavPassLogo(installed: Boolean, size: androidx.compose.ui.unit.Dp = 72.dp) {
+    val ctx = LocalContext.current
+    val app = PayApp.current
+    val icon = remember(app, installed) {
+        if (app == PayApp.EGG && installed) runCatching { squareIcon(ctx.packageManager.getApplicationIcon(app.pkg), 192) }.getOrNull()
+        else null
+    }
     val shape = RoundedCornerShape(size / 4)
     Box(Modifier.size(size).clip(shape).background(Color.White).border(0.5.dp, K.separator, shape), contentAlignment = Alignment.Center) {
-        if (PayApp.current == PayApp.RAV_PASS)
-            Image(painterResource(R.drawable.ravpass_logo), contentDescription = PayApp.current.label(), modifier = Modifier.requiredSize(size * 1.5f))
-        else
-            Icon(Icons.Rounded.QrCodeScanner, contentDescription = PayApp.current.label(), tint = K.accentInk, modifier = Modifier.size(size * 0.6f))
+        when {
+            app == PayApp.RAV_PASS -> Image(painterResource(R.drawable.ravpass_logo), contentDescription = app.label(), modifier = Modifier.requiredSize(size * 1.5f))
+            icon != null -> Image(icon, contentDescription = app.label(), modifier = Modifier.fillMaxSize())
+            else -> Icon(Icons.Rounded.QrCodeScanner, contentDescription = app.label(), tint = K.accentInk, modifier = Modifier.size(size * 0.6f))
+        }
     }
+}
+
+// An app's icon filling a square of px: an adaptive icon's own layers, the middle 72 of their 108 dp, without the phone's
+// icon shape (a circle on some phones, which would leave the square's corners bare); any other icon as it is.
+private fun squareIcon(icon: android.graphics.drawable.Drawable, px: Int): androidx.compose.ui.graphics.ImageBitmap {
+    if (icon !is android.graphics.drawable.AdaptiveIconDrawable) return icon.toBitmap(px, px).asImageBitmap()
+    val bitmap = android.graphics.Bitmap.createBitmap(px, px, android.graphics.Bitmap.Config.ARGB_8888)
+    val canvas = android.graphics.Canvas(bitmap)
+    val edge = px / 4
+    for (layer in listOfNotNull(icon.background, icon.foreground)) {
+        layer.setBounds(-edge, -edge, px + edge, px + edge)
+        layer.draw(canvas)
+    }
+    return bitmap.asImageBitmap()
 }
 
 @Composable
@@ -197,8 +221,8 @@ private fun GetRavPass() {
     }
     Title(T("${PayApp.current.label()} is required", "נדרשת ${PayApp.current.he}"))
     Spacer(Modifier.height(K.gap2))
-    Text(T("Since Kav 5, paying goes through the ${PayApp.current.label()} app. Install it, sign in and add a way to pay, then come back to Kav.",
-        "מ-Kav 5 התשלום עובר דרך האפליקציה ${PayApp.current.he}. התקינו אותה, התחברו והוסיפו אמצעי תשלום, ואז חזרו ל-Kav."),
+    Text(T("Install it, sign in and add a way to pay, then come back to Kav.",
+        "התקינו אותה, התחברו והוסיפו אמצעי תשלום, ואז חזרו ל-Kav."),
         style = K.type.body, color = K.textSecondary, textAlign = TextAlign.Center)
     Spacer(Modifier.height(K.gap5))
     KavButton(when (store) {
@@ -232,14 +256,16 @@ private fun Allow(rows: List<Need>, missing: List<Need>, greyed: Need?, onOverla
         }
     }
     // Kav can't ask Android whether it greyed the switch out, so this says what to do if it did, with Android's own words.
-    AnimatedVisibility(greyed != null, enter = fadeIn(tween(220)) + expandVertically(), exit = fadeOut(tween(150)) + shrinkVertically()) {
+    AnimatedVisibility(
+        greyed != null,
+        enter = fadeIn(tween(220, delayMillis = 60)) + expandVertically(spring(dampingRatio = 1f, stiffness = 500f)),
+        exit = fadeOut(tween(150)) + shrinkVertically(spring(dampingRatio = 1f, stiffness = 500f)),
+    ) {
         Column(Modifier.fillMaxWidth().padding(top = K.gap3).clip(RoundedCornerShape(K.rTile)).background(K.fill).padding(K.gap4),
             verticalArrangement = Arrangement.spacedBy(K.gap2)) {
             Text(T("Was the switch grayed out?", "המתג היה אפור?"), style = K.type.bodyStrong, color = K.text)
-            Text(T("Android blocks it for apps installed from a download rather than an app store, until you allow it. " +
-                "Open Kav's App info, tap ⋮ at the top, then \"Allow restricted settings\", and come back to try again.",
-                "Android חוסמת אותו לאפליקציות שהותקנו מהורדה ולא מחנות אפליקציות, עד שתאשרו. " +
-                    "פתחו את \"פרטי האפליקציה\" של Kav, הקישו על ⋮ למעלה ואז על \"הרשאה להגדרות מוגבלות\", וחזרו לנסות שוב."),
+            Text(T("In Kav's App info, tap ⋮ at the top, then \"Allow restricted settings\", and try again.",
+                "בפרטי האפליקציה של Kav, הקישו על ⋮ למעלה ואז על \"הרשאה להגדרות מוגבלות\", ונסו שוב."),
                 style = K.type.subhead)
             KavButton(T("Open Kav's App info", "פתיחת פרטי האפליקציה של Kav"), onClick = { openAppInfo(ctx) },
                 style = ButtonStyle.Secondary, wide = true)
