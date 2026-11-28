@@ -441,6 +441,10 @@ object Pipeline {
             .put("lineNumber", if (ride) l.shortName.ifBlank { r.line(l.lineId)?.number.orEmpty() } else JSONObject.NULL)
             .put("mode", if (ride) mode(l, r) else -1).put("trip", if (ride) tripRef(l.tripId) ?: JSONObject.NULL else JSONObject.NULL)
             .put("stops", l.stops.size).put("liveDep", liveDep(l, r) ?: JSONObject.NULL).put("liveArr", liveArr(l, r) ?: JSONObject.NULL)
+            // The leg's road, [lat, lon] points (a ride's is from the stop it's boarded at to the one it's left at), and for a
+            // ride the stops it calls at on the way, the first and the last too: what "stops" counts.
+            .put("shape", JSONArray(l.shape.map { (lat, lon) -> JSONArray().put(lat).put(lon) }))
+            .put("stopList", JSONArray(if (ride) l.stops.map { point(it, null) } else emptyList<JSONObject>()))
             .put("turns", JSONArray(l.turns.map { u ->
                 JSONObject().put("way", u.way).put("street", u.street).put("metres", u.metres).put("lat", u.lat).put("lon", u.lon)
             }))
