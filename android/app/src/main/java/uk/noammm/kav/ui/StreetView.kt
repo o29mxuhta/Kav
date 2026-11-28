@@ -230,7 +230,7 @@ private fun StopLookScreen(shown: StopLook, onClose: () -> Unit) {
                     Text(
                         T("Google has no Street View here", "ל-Google אין כאן Street View"), style = K.type.subhead, color = K.text,
                         modifier = Modifier.align(Alignment.TopCenter).padding(top = K.gap3)
-                            .glassSurface(20.dp).padding(horizontal = K.gap4, vertical = K.gap2),
+                            .heightIn(min = 36.dp).glassSurface(K.pill(18.dp)).padding(horizontal = K.gap4, vertical = K.gap2),
                     )
                 }
                 is PanoState.Found -> StreetPane(shown, now.pano) { ready = true }
@@ -472,7 +472,7 @@ private fun StreetWebView(page: String, ground: Int, onReady: () -> Unit) {
     )
     AnimatedVisibility(prepared, Modifier.align(Alignment.BottomEnd).padding(end = K.gap3, bottom = 48.dp),
         enter = fadeIn(tween(200)), exit = fadeOut(tween(150))) {
-        Column(Modifier.clip(RoundedCornerShape(22.dp)).background(K.surfaceRaised).padding(4.dp)) {
+        Column(Modifier.clip(RoundedCornerShape(K.rCard)).background(K.surfaceRaised).padding(4.dp)) {
             Row {
                 IconButton({ command("zoomOut") }) { Icon(Icons.Rounded.Remove, T("Zoom out", "הקטנה"), tint = K.text) }
                 IconButton({ command("zoomIn") }) { Icon(Icons.Rounded.Add, T("Zoom in", "הגדלה"), tint = K.text) }

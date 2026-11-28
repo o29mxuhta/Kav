@@ -167,8 +167,7 @@ class ExtTripLinks(val onTrip: (RecentTrip) -> Unit, val onResume: () -> Unit)
 private fun linksFor(model: KavModel) = ExtTripLinks(
     onTrip = { t ->
         ExtPageNav.close(model)
-        model.pendingFrom = t.from
-        model.pendingTo = t.to
+        model.pendingRecent = t
         model.tab = Tab.Directions
     },
     // The trip's resume card is on Home.
@@ -215,7 +214,7 @@ private fun WrappingToggle(label: String, on: Boolean, subtitle: String? = null,
 
 @Composable
 private fun BlockRow(b: Blocks.Row, act: (Blocks.Action) -> Unit) = ListRow(
-    b.title, subtitle = b.subtitle, value = b.value, subtitleMaxLines = 2,
+    b.title, subtitle = b.subtitle, value = b.value, subtitleMaxLines = Int.MAX_VALUE,
     leading = iconOf(b.icon)?.let { v -> { Icon(v, null, tint = K.textSecondary, modifier = Modifier.size(22.dp)) } },
     onClick = b.action?.let { a -> { act(a) } },
 )
@@ -398,12 +397,16 @@ internal fun ExtSettingsForm(identity: String, header: String? = null, first: Li
             }
         }
     }
-    // Its own view, as its code makes it, each time the page shows.
-    if (own != null) androidx.compose.ui.viewinterop.AndroidView(
-        factory = { c -> uk.noammm.kav.ext.Native.view(identity, "settings") { own.create(c, "{}") } ?: android.widget.FrameLayout(c) },
-        // Under the Settings card at the gap between cards of one section; straight under the title when there's no card.
-        modifier = Modifier.fillMaxWidth().padding(top = if (card) K.gap3 else 0.dp),
-    )
+    // Its own view, as its code makes it, each time the page shows, and again when the rider turns one of its trip
+    // switches on or off (TripAccess), which its code has no other way to know.
+    val grants = ExtUi.tick.let { uk.noammm.kav.ext.TripAccess.allowed.filter { it.substringBeforeLast('|') == identity } }
+    if (own != null) androidx.compose.runtime.key(grants) {
+        androidx.compose.ui.viewinterop.AndroidView(
+            factory = { c -> uk.noammm.kav.ext.Native.view(identity, "settings") { own.create(c, "{}") } ?: android.widget.FrameLayout(c) },
+            // Under the Settings card at the gap between cards of one section; straight under the title when there's no card.
+            modifier = Modifier.fillMaxWidth().padding(top = if (card) K.gap3 else 0.dp),
+        )
+    }
     picking?.let { s ->
         val done = { picking = null }
         when (s.type) {
@@ -547,6 +550,8 @@ internal fun extScreenRows(hub: Hub, i: Registry.Installed): ListGroupScope.() -
     val app = LocalContext.current.applicationContext
     val scope = rememberCoroutineScope()
     val decl = remember(i.sha256) { runCatching { PageSpecs.of(i.manifest) }.getOrNull() } ?: return {}
+    val widgets = remember(i.sha256) { uk.noammm.kav.ext.Widgets.of(i.manifest) }
+    val pin = remember { android.os.Build.VERSION.SDK_INT >= 26 && android.appwidget.AppWidgetManager.getInstance(app).isRequestPinAppWidgetSupported }
     val theme = remember(i.sha256) { Screens.themeOf(i) }
     val on = hub.active(i) && !SafeMode.active
     fun choose(block: () -> Unit) = scope.launch { io { block() }; ExtShown.publish(); ExtUi.changed() }
@@ -564,12 +569,24 @@ internal fun extScreenRows(hub: Hub, i: Registry.Installed): ListGroupScope.() -
         if (decl.home) row {
             SwitchRow(T("Use as my Home screen", "שימוש כמסך הבית שלי"), home?.identity == i.identity) { v -> choose { Screens.chooseHome(dir, if (v) Screens.homeOf(i) else null) } }
         }
-        if (theme != null) row {
-            SwitchRow(T("Use this look", "שימוש במראה הזה"), look?.identity == i.identity) { v -> choose { Screens.chooseTheme(dir, if (v) theme else null) } }
+        // A theme package's look is its own switch, at the top of its page; an extension's is this row. Choosing it takes
+        // an applied theme off, as only one look is ever chosen.
+        if (theme != null && !i.manifest.isTheme) row {
+            SwitchRow(T("Use this look", "שימוש במראה הזה"), look?.identity == i.identity) { v ->
+                choose {
+                    if (v) uk.noammm.kav.ext.Themes.toSwitchOff(hub.registry.installed, null).forEach { hub.setEnabled(it, false) }
+                    Screens.chooseTheme(dir, if (v) theme else null)
+                }
+            }
         }
         // A page that isn't its tab or Home opens from here.
         for (p in decl.pages.filter { it.id != PageSpecs.HOME_PAGE && it.entry && !it.tab }) row {
             ListRow(T("Open ", "פתיחת ") + "\u2068${words(p.title)}\u2069", onClick = if (on) ({ ExtPageNav.open(ExtEntry(i.identity, p.id)) }) else null)
+        }
+        // Its home screen widgets, each placed from here at the size it looks best at, where the launcher can.
+        if (pin) for (w in widgets) row {
+            ListRow(T("Add ", "הוספת ") + "\u2068${words(w.title)}\u2069" + T(" to the home screen", " למסך הבית"),
+                onClick = if (on) ({ uk.noammm.kav.ExtWidgets.pin(app, i.identity, w) }) else null, chevron = false)
         }
     }
 }

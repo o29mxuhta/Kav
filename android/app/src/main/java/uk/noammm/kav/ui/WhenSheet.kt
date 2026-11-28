@@ -91,6 +91,9 @@ fun WhenSheet(
 
     BottomSheet(onDismiss, scrolls = true) { close ->
         val chosen = mode
+        // Back from setting a time goes to the list it was opened from, as the sheet's own Back does; from the list it
+        // closes the sheet.
+        androidx.activity.compose.BackHandler(chosen != null) { mode = null }
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(
                 when (chosen) {
@@ -246,7 +249,7 @@ private fun TimeField(
                     RoundedCornerShape(K.rTile),
                 )
                 .onFocusChanged { focused = it.isFocused; typed = null },
-            textStyle = TextStyle(fontSize = 44.sp, color = androidx.compose.animation.animateColorAsState(if (valid) K.text else K.critical, androidx.compose.animation.core.tween(150), label = "digits").value, textAlign = TextAlign.Center),
+            textStyle = TextStyle(fontFamily = K.font, fontSize = 44.sp, color = androidx.compose.animation.animateColorAsState(if (valid) K.text else K.critical, androidx.compose.animation.core.tween(150), label = "digits").value, textAlign = TextAlign.Center),
             singleLine = true,
             cursorBrush = SolidColor(K.accent),
             keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number, imeAction = ime),
@@ -342,7 +345,8 @@ internal fun dayLabel(today: Calendar, offset: Int): String {
 
 // A kept time as the first list shows it, in the rider's clock: "Arrive by 08:00", "Depart at 7:30 PM".
 internal fun savedLabel(t: SavedTime): String {
-    val time = T.ltr(hhmm(t.hour * 3600 + t.minute * 60))
+    // A 12-hour time is already one piece (hhmm).
+    val time = hhmm(t.hour * 3600 + t.minute * 60).let { if (Shown.twelveHour) it else T.ltr(it) }
     return if (t.type == Transit.TIME_ARRIVAL) T("Arrive by $time", "הגעה עד $time") else T("Depart at $time", "יציאה בשעה $time")
 }
 

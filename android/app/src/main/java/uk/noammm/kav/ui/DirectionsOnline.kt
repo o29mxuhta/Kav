@@ -2,7 +2,7 @@
 
 package uk.noammm.kav.ui
 
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material3.Text
@@ -12,6 +12,7 @@ import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.animation.core.VisibilityThreshold
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.Dispatchers
@@ -30,6 +31,8 @@ import uk.noammm.kav.data.Transit
 import uk.noammm.kav.data.Transit.Place
 import uk.noammm.kav.data.TripLink
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.LocationOff
+import androidx.compose.material.icons.rounded.SentimentDissatisfied
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowLeft
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
 import uk.noammm.kav.data.RailTrip
@@ -75,6 +78,10 @@ private fun timeWay(type: Int) = when (type) {
 }
 
 private fun hereName() = T(HERE[0], HERE[1])
+
+// A trip's start as shown: where the rider was, in Kav's language now, whichever language it was named in when the trip
+// was made.
+internal fun placeLabel(label: String): String = if (label in HERE) hereName() else label
 
 private fun herePlace(at: Pair<Double, Double>) = Place(hereName(), "", at.first, at.second)
 
@@ -165,6 +172,11 @@ fun DirectionsOnline(model: KavModel) {
         asking = o
         if (!uk.noammm.kav.ext.Actions.take(ctx, "trip.open") { org.json.JSONObject().put("trip", uk.noammm.kav.ext.Slots.trip(o.trip, o.resolved)) }) open = o
     }
+    LaunchedEffect(model.openJourney) {
+        if (!model.openJourney) return@LaunchedEffect
+        model.openJourney = false
+        model.activeJourney?.let { j -> openTrip(OpenTrip(j.trip, j.resolved, j.fromLabel, j.toLabel, resume = true, stopovers = j.stopovers)) }
+    }
     // Kav's own search for Kav.kavAction("plan"): this search planned again, no extension asked.
     var planOwn by remember { mutableStateOf(false) }
     // Kav's own, for Kav.kavAction: the trip last tapped opens; the search on screen is planned.
@@ -188,10 +200,10 @@ fun DirectionsOnline(model: KavModel) {
     var linkError by remember { mutableStateOf<String?>(null) }
     var lastLink by remember { mutableStateOf<TripLink.Plan?>(null) }
     val filters = model.filters
-    // Whose routes show: the planner chosen in Settings, or the tab picked when every planner's are shown.
-    var tab by remember { mutableStateOf<Source?>(null) }
-    val tabs = if (KavPlan.everyPlanner) KavPlan.tabs() else emptyList()
-    val planner = tab?.takeIf { it in tabs } ?: KavPlan.source
+    // Whose routes show, by its tab's key (KavPlan.plannerTabs): the tab picked, else the one results open on.
+    var tab by remember { mutableStateOf<String?>(null) }
+    val tabs = KavPlan.plannerTabs()
+    val planner = tab?.takeIf { it in tabs } ?: KavPlan.opensOn(tabs) ?: KavPlan.source.key
     fun openSearch() {
         hereOrigin = null; stopovers = emptyList(); linkError = null; fromPlace = null
         departAt = 0L; timeType = Transit.TIME_DEPARTURE; picking = "to"
@@ -255,8 +267,13 @@ fun DirectionsOnline(model: KavModel) {
             Sort.entries.firstOrNull { it.name.lowercase() == a.optString("order") && (it != Sort.LOWEST_CO2 || Shown.co2) }
                 ?.let(::chooseOrder)
         }
-        onResults("results.planner.select") { a ->
-            if (KavPlan.everyPlanner) KavPlan.tabs().firstOrNull { it.key == a.optString("source") }?.let { tab = it }
+        // A tab picked on the results; with "default": true, also the one results open on from now (Settings has it),
+        // whether results are showing or not (kavActions has that before this screen opens).
+        Actions.own("results.planner.select") { c, a ->
+            val key = a.optString("source")
+            if (a.optBoolean("default")) chooseOpensOn(c, key)
+            if (model.tab == Tab.Directions && !model.settingsOpen && showResults && open == null)
+                KavPlan.plannerTabs().firstOrNull { it == key }?.let { tab = it }
         }
         onDispose { }
     }
@@ -279,6 +296,15 @@ fun DirectionsOnline(model: KavModel) {
         showResults = false
         if (backToBoard) { backToBoard = false; model.tab = uk.noammm.kav.Tab.Stations }
     }
+    fun planRecent(t: RecentTrip) {
+        recent = t
+        hereOrigin = null; stopovers = t.stopovers; linkError = null; fromPlace = recentStart(t); toPlace = t.to
+        departAt = 0L; timeType = Transit.TIME_DEPARTURE
+        linkTrip = null; lastLink = null
+        planAgain++
+        showResults = true
+    }
+    LaunchedEffect(model.pendingRecent) { model.pendingRecent?.let { model.pendingRecent = null; planRecent(it) } }
     LaunchedEffect(model.pendingFrom, model.pendingTo) {
         if (model.pendingFrom != null || model.pendingTo != null) {
             hereOrigin = null; stopovers = emptyList(); showResults = true
@@ -410,9 +436,9 @@ fun DirectionsOnline(model: KavModel) {
             val types = routeTypesFor(filters)
             val taxi = ResultFilter.TAXI in filters
             // A recent trip an extension planned is planned again by that extension only: if it's gone, it says so.
-            val pinned = recent?.takeIf { it.to === toPlace && it.from === fromPlace && it.planner.isNotEmpty() }
+            val pinned = recent?.takeIf { it.to === toPlace && recentStart(it) === fromPlace && it.planner.isNotEmpty() }
                 ?.let { uk.noammm.kav.ext.Extensions.address(it.planner) }
-            val kav = if (link == null && planner in tabs && pinned == null) {
+            val kav = if (link == null && tabs.size > 1 && pinned == null) {
                 every.routes(listOf(fromLL, toLL, departAt, timeType, filters, stopovers, planAgain, settings), planner, tabs,
                     if (departAt == 0L) LEAVE_NOW_KEPT_MS else Long.MAX_VALUE) { by ->
                     val at = KavPlan.plannerOf(by) ?: throw java.io.IOException("no planner answering")
@@ -448,6 +474,27 @@ fun DirectionsOnline(model: KavModel) {
                 checking = false
                 if (checked.failure != null) { unchecked = kavRoutes; raw = emptyList(); ruleFailure = checked.failure }
                 else { raw = checked.routes; ruleNote = rulesSaid(checked); hiddenRoutes = checked.hiddenRoutes }
+            }
+            // Extensions that add routes (ext/KavPlans.kt) are asked once Kav's own planner's routes are on screen, for a
+            // search without stops on the way; theirs go first, judged by the rider's route rules too.
+            if (link == null && pinned == null && planner == KavPlan.source.key && timeType != Transit.TIME_LAST && stopovers.isEmpty() &&
+                raw.isNotEmpty() && ruleFailure == null && uk.noammm.kav.ext.KavPlans.wanted()) {
+                planning = false; plannedFor = planKey
+                val kavRoutes = raw
+                // "at" is 0 for a search for now, as in Kav.plan, so an extension can tell it from one for a time picked.
+                val asked = uk.noammm.kav.ext.KavPlans.Query(fromLL, toLL, departAt / 1000, if (q.way == 'a') 'a' else 'd', settings, types)
+                val added = withContext(Dispatchers.IO) {
+                    runCatching { uk.noammm.kav.ext.KavPlans.ask("search", asked, q.nowS, kavRoutes.filterNot(res::isTaxiCard), resolved) }.getOrNull()
+                        ?.let { a ->
+                            val routes = if (!uk.noammm.kav.ext.Hooks.hasRules()) a.routes
+                                else uk.noammm.kav.ext.Hooks.check(a.routes, a.resolved, q).takeIf { it.failure == null }?.routes.orEmpty()
+                            uk.noammm.kav.ext.KavPlans.Added(routes, a.resolved)
+                        }
+                }
+                if (added != null && added.routes.isNotEmpty()) {
+                    resolved = added.resolved
+                    raw = uk.noammm.kav.ext.Pipeline.retag(added.routes + kavRoutes)
+                }
             }
             model.activeJourney?.takeIf { active -> raw.any { it === active.trip } }?.let {
                 model.activeJourney = it.copy(resolved = Transit.Resolved(
@@ -506,8 +553,8 @@ fun DirectionsOnline(model: KavModel) {
         } catch (e: uk.noammm.kav.ext.ProviderProblem) {
             android.util.Log.i("KavPlan", "extension planner: ${e.message}")
             error = if (e.off) T(
-                "Extensions are off while Kav is in safe mode, so the extension you chose to plan with wasn't asked. Turn them back on in Settings › Extensions.",
-                "התוספים כבויים כל עוד Kav במצב בטוח, ולכן התוסף שבחרתם לתכנון לא נשאל. אפשר להפעיל אותם שוב בהגדרות › תוספים.",
+                "Extensions are off in safe mode, so your planner extension wasn't asked.",
+                "התוספים כבויים במצב בטוח, ולכן תוסף התכנון שלכם לא נשאל.",
             ) else if (e.missing) T(
                 "The extension that planned this trip isn't installed, so it wasn't planned again.",
                 "התוסף שתכנן את הנסיעה הזו לא מותקן, ולכן היא לא תוכננה שוב.",
@@ -524,7 +571,9 @@ fun DirectionsOnline(model: KavModel) {
                     "Kav's planner has no timetable for that day yet. Try a nearer date.",
                     "לתכנון של Kav עוד אין לוח זמנים ליום הזה. נסו תאריך קרוב יותר.",
                 )
-                KavLive.serverOf(planner) != KavLive.KAV_SERVER -> T("Your server didn't answer.", "השרת שלכם לא ענה.")
+                uk.noammm.kav.ext.Extensions.isAddress(planner) ->
+                    KavPlan.tabName(planner).let { T("$it didn't answer.", "$it לא ענה.") }
+                Source.of(planner)?.let(KavLive::serverOf) != KavLive.KAV_SERVER -> T("Your server didn't answer.", "השרת שלכם לא ענה.")
                 else -> T("Kav's server didn't answer.", "השרת של Kav לא ענה.")
             }
             planning = false
@@ -599,11 +648,8 @@ fun DirectionsOnline(model: KavModel) {
             Sort.LOWEST_CO2 -> kept.sortedWith(compareBy({ uk.noammm.kav.data.Emissions.grams(it, resolved).let { g -> if (g < 0) Int.MAX_VALUE else g } }, { it.durationMin }))
         }
     }
-    // The first route's time, and the last one shown: once there was one, Earlier and Later stay while new routes load,
-    // with the time those are for between them (loadingTime()).
+    // The first route's time, between Earlier and Later once routes show; before that, the time they are for (loadingTime()).
     val firstTime = shown.firstOrNull()?.let { clockFormat().format(java.util.Date(it.dep * 1000)) }
-    var shiftTime by remember { mutableStateOf("") }
-    SideEffect { firstTime?.let { shiftTime = it } }
 
     androidx.activity.compose.BackHandler(enabled = showResults && open == null && picking == null && linkTrip == null) {
         leaveResults()
@@ -677,14 +723,7 @@ fun DirectionsOnline(model: KavModel) {
                 showResults = true
             },
             onSetFavourite = { f -> model.settingFavourite = f },
-            onTrip = { t ->
-                recent = t
-                hereOrigin = null; stopovers = t.stopovers; linkError = null; fromPlace = t.from; toPlace = t.to
-                departAt = 0L; timeType = Transit.TIME_DEPARTURE
-                linkTrip = null; lastLink = null
-                planAgain++
-                showResults = true
-            },
+            onTrip = ::planRecent,
             onResume = {
                 model.activeJourney?.let { journey ->
                     openTrip(OpenTrip(journey.trip, journey.resolved, journey.fromLabel, journey.toLabel, resume = true, stopovers = journey.stopovers))
@@ -723,8 +762,7 @@ fun DirectionsOnline(model: KavModel) {
     if (linkError != null) {
         Column(Modifier.fillMaxSize()) {
             ScreenHeader(T("Shared trip", "נסיעה משותפת"), back = { linkError = null; showResults = false })
-            Note(linkError.orEmpty(), Modifier.padding(K.gap4))
-            KavButton(T("Try again", "נסו שוב"), { model.pendingLink = lastLink }, Modifier.padding(horizontal = K.gap2), style = ButtonStyle.Plain)
+            PlanFailed(linkError.orEmpty(), Modifier.weight(1f).padding(K.gap4), { model.pendingLink = lastLink })
         }
         return@AnimatedContent
     }
@@ -792,9 +830,10 @@ fun DirectionsOnline(model: KavModel) {
                     }
                 }
             }
-            // Earlier and Later, with the first route's time between them. It stays while new routes load, so the
-            // time rolls to theirs instead of the row going.
-            fun androidx.compose.foundation.lazy.LazyListScope.shiftRow(time: String) = item(key = "shift") {
+            // Earlier and Later, with the first route's time between them. The row comes with the screen and the options
+            // above it, and stays while routes load, so the time rolls to theirs instead of the row coming or going.
+            // With no trip to plan yet, its chips are there but not tappable.
+            fun androidx.compose.foundation.lazy.LazyListScope.shiftRow(time: String, active: Boolean) = item(key = "shift") {
                 KavPart("results.time.shift", time, { JSONObject().put("firstDeparture", time) }) {
                     Row(
                         Modifier.animateItem(fadeInSpec = androidx.compose.animation.core.tween(240),
@@ -810,7 +849,7 @@ fun DirectionsOnline(model: KavModel) {
                             selectTime(next, if (next == 0L) Transit.TIME_DEPARTURE else timeType)
                         }
                         KavChip(T("Earlier", "מוקדם יותר"), selected = false, onClick = { nudge(-15 * 60_000L) },
-                            icon = Icons.AutoMirrored.Rounded.KeyboardArrowLeft)
+                            icon = Icons.AutoMirrored.Rounded.KeyboardArrowLeft, enabled = active)
                         Spacer(Modifier.weight(1f))
                         // The time rolls up for Later and down for Earlier.
                         RollingText(
@@ -820,7 +859,7 @@ fun DirectionsOnline(model: KavModel) {
                         )
                         Spacer(Modifier.weight(1f))
                         KavChip(T("Later", "מאוחר יותר"), selected = false, onClick = { nudge(15 * 60_000L) },
-                            trailing = Icons.AutoMirrored.Rounded.KeyboardArrowRight)
+                            trailing = Icons.AutoMirrored.Rounded.KeyboardArrowRight, enabled = active)
                     }
                 }
             }
@@ -828,45 +867,44 @@ fun DirectionsOnline(model: KavModel) {
             // or empty answer too, so another can be picked.
             fun androidx.compose.foundation.lazy.LazyListScope.tabsRow() {
                 if (tabs.size > 1) item(key = "planners") {
-                    KavPart("results.planners", tabs to planner, { JSONObject().put("source", planner.key).put("sources", JSONArray(tabs.map { it.key })) }) {
+                    KavPart("results.planners", tabs to planner, { JSONObject().put("source", planner).put("sources", JSONArray(tabs)) }) {
                         PlannerTabs(tabs, planner, { picked ->
-                            resultAction("results.planner.select", { JSONObject().put("source", picked.key) }) { tab = picked }
+                            resultAction("results.planner.select", { JSONObject().put("source", picked) }) { tab = picked }
                         }, listMotion().padding(horizontal = K.gap4, vertical = K.gap2))
                     }
                 }
             }
+            val listed = error == null && ruleFailure == null && toLL != null && fromLL != null && !planning && plannedFor == planKey
+            if (timeType != Transit.TIME_LAST) {
+                shiftRow(firstTime?.takeIf { listed } ?: loadingTime(departAt), active = fromLL != null && toLL != null && error != TOO_CLOSE)
+            }
             when {
                 error == TOO_CLOSE -> item(key = "too-close") {
+                    KavPartRow("results.empty", "too_close", { emptyArgs("too_close") }, listMotion().padding(K.gap4)) { m ->
                     NoteCard(
                         T(
                             "You're too close to your destination to plan a route.",
                             "אתם קרובים מדי ליעד כדי לתכנן מסלול.",
                         ),
-                        listMotion().padding(K.gap4),
+                        m,
                     )
+                    }
                 }
                 ruleFailure != null && error == null -> {
                     tabsRow()
                     item(key = "rule-failed") {
-                        Column(listMotion().padding(K.gap4)) {
-                            Note(ruleFailed(ruleFailure!!))
-                            Text(T("Try again", "נסו שוב"), color = K.accentInk,
-                                modifier = Modifier.clickable { planAgain++ }.padding(vertical = K.gap3))
-                            // The one fallback, asked for by the rider: Kav's routes, said not to be checked.
-                            Text(T("Show routes without this check", "הצגת המסלולים בלי הבדיקה הזו"), color = K.accentInk,
-                                modifier = Modifier.clickable {
-                                    ruleNote = notChecked(ruleFailure!!); raw = unchecked; ruleFailure = null
-                                }.padding(vertical = K.gap3))
-                        }
+                        // The one fallback, asked for by the rider: Kav's routes, said not to be checked.
+                        PlanFailed(ruleFailed(ruleFailure!!), listMotion().fillParentMaxHeight(.6f).padding(K.gap4), { planAgain++ },
+                            T("Show routes without this check", "הצגת המסלולים בלי הבדיקה הזו") to {
+                                ruleNote = notChecked(ruleFailure!!); raw = unchecked; ruleFailure = null
+                            })
                     }
                 }
                 error != null -> {
                     tabsRow()
                     item(key = "error") {
-                        Column(listMotion().padding(K.gap4)) {
-                            Note(error.orEmpty())
-                            Text(T("Try again", "נסו שוב"), color = K.accentInk,
-                                modifier = Modifier.clickable { planAgain++ }.padding(vertical = K.gap3))
+                        KavPartRow("results.empty", "error" to error, { emptyArgs("error") }, listMotion().fillParentMaxHeight(.6f).padding(K.gap4)) { m ->
+                            PlanFailed(error.orEmpty(), m, { planAgain++ })
                         }
                     }
                 }
@@ -885,16 +923,12 @@ fun DirectionsOnline(model: KavModel) {
                     fadeOutSpec = androidx.compose.animation.core.tween(120), placementSpec = null,
                 ).fillParentMaxHeight(.6f)) }
                 fromLL == null -> item(key = "no-start") {
-                    Column(listMotion().padding(K.gap4)) {
-                        if (findHereFailed) Note(T("Couldn't get an accurate location. Try again or choose a start.",
-                            "לא התקבל מיקום מדויק. נסו שוב או בחרו נקודת התחלה."))
-                        else NoteCard(T("Choose a start to find routes.", "בחרו נקודת התחלה כדי למצוא מסלולים."))
-                        if (findHereFailed && !findingHere) Text(T("Try again", "נסו שוב"), color = K.accentInk,
-                            modifier = Modifier.clickable { hereRetry++ }.padding(vertical = K.gap3))
-                    }
+                    if (findHereFailed) PlanFailed(T("Couldn't get an accurate location. Try again or choose a start.",
+                        "לא התקבל מיקום מדויק. נסו שוב או בחרו נקודת התחלה."), listMotion().fillParentMaxHeight(.6f).padding(K.gap4),
+                        { if (!findingHere) hereRetry++ }, icon = Icons.Rounded.LocationOff)
+                    else NoteCard(T("Choose a start to find routes.", "בחרו נקודת התחלה כדי למצוא מסלולים."), listMotion().padding(K.gap4))
                 }
                 planning || plannedFor != planKey -> {
-                    if (timeType != Transit.TIME_LAST && shiftTime.isNotEmpty()) shiftRow(loadingTime(departAt))
                     tabsRow()
                     item(key = "finding") { LoadingBlock(T("Finding routes", "מחפשים מסלולים"), Modifier.animateItem(
                         fadeInSpec = androidx.compose.animation.core.tween(200, delayMillis = 60),
@@ -907,21 +941,24 @@ fun DirectionsOnline(model: KavModel) {
                     // Every route found was left out by the rider's own rules: that, not "none found".
                     if (hid != null) {
                         item(key = "hidden-routes") {
-                            HiddenRoutesNotice(hid.count, hid.by, hiddenReasons(hiddenRoutes), showing = showHidden,
-                                modifier = listMotion().padding(K.gap4)) { showHidden = true }
+                            KavPartRow("results.hidden", hid.count to showHidden, { hiddenArgs(hiddenRoutes) }, listMotion().padding(K.gap4)) { m ->
+                                HiddenRoutesNotice(hid.count, hid.by, hiddenReasons(hiddenRoutes), showing = showHidden, modifier = m) { showHidden = true }
+                            }
                         }
                         ruleNote?.let { note -> item(key = "rules") { NoteCard(note, listMotion().padding(horizontal = K.gap4, vertical = K.gap2)) } }
                     } else item(key = "empty") {
+                        val reason = if (raw.isEmpty() && nothingOnShabbat) "shabbat" else if (raw.isEmpty()) "none" else "filtered"
+                        KavPartRow("results.empty", reason, { emptyArgs(reason) }, listMotion().padding(K.gap4)) { m ->
                         NoteCard(
                             if (raw.isEmpty() && nothingOnShabbat) SHABBAT_NOTHING
                             else if (raw.isEmpty()) T("No routes found for this trip.", "לא נמצאו מסלולים לנסיעה הזו.")
                             else T("Every route found is switched off in your filters.", "כל המסלולים שנמצאו הוסתרו על ידי המסננים שלכם."),
-                            listMotion().padding(K.gap4),
+                            m,
                         )
+                        }
                     }
                 }
                 else -> {
-                    if (timeType != Transit.TIME_LAST) shiftRow(firstTime ?: shiftTime)
                     tabsRow()
                     ruleNote?.let { note ->
                         item(key = "rules") { NoteCard(note, listMotion().padding(horizontal = K.gap4, vertical = K.gap2)) }
@@ -1037,8 +1074,11 @@ fun DirectionsOnline(model: KavModel) {
                     // Routes the rider's extensions left out: said under the routes, with the tap that shows them once.
                     uk.noammm.kav.ext.Pipeline.hiddenNotice(hiddenRoutes)?.let { n ->
                         item(key = "hidden-routes") {
+                            KavPartRow("results.hidden", n.count to showHidden, { hiddenArgs(hiddenRoutes) },
+                                listMotion().padding(horizontal = K.gap4, vertical = K.gap2)) { m ->
                             HiddenRoutesNotice(n.count, n.by, hiddenReasons(hiddenRoutes), showing = showHidden,
-                                modifier = listMotion().padding(horizontal = K.gap4, vertical = K.gap2)) { showHidden = true }
+                                modifier = m) { showHidden = true }
+                            }
                         }
                     }
                 }
@@ -1061,6 +1101,11 @@ fun DirectionsOnline(model: KavModel) {
         label = "placePicker",
     ) { which ->
         if (which != null) {
+        // A pick clears the words for the next search at once: the search fading out keeps the ones it showed, so its
+        // results stay under the finger instead of its empty page flashing up.
+        val leaving = transition.targetState != androidx.compose.animation.EnterExitState.Visible
+        val shownQuery = remember { arrayOf(model.placeQuery) }
+        if (!leaving) shownQuery[0] = model.placeQuery
         PlacePicker(
             // "stop" adds a stop on the way, "stop:1" changes the second.
             title = when {
@@ -1100,7 +1145,7 @@ fun DirectionsOnline(model: KavModel) {
             net = model.net,
             favourites = model.favourites,
             onSaveFavourites = { model.saveFavourites(ctx, it) },
-            query = model.placeQuery,
+            query = shownQuery[0],
             onQuery = { model.placeQuery = it },
             onLocate = { model.locate(it.first, it.second) },
         )
@@ -1177,6 +1222,14 @@ internal fun loadingTime(departAt: Long, nowMs: Long = System.currentTimeMillis(
     clockFormat().format(java.util.Date(if (departAt > 0L) departAt else nowMs))
 
 // What the rider's route rules did to a search, in a line; null when they changed nothing worth saying.
+// What the results' notes are told (results.empty): why there are no routes to show, "none", "filtered" (the rider's
+// filters hide them all), "shabbat", "error" or "too_close".
+private fun emptyArgs(reason: String) = org.json.JSONObject().put("reason", reason)
+
+// And the row of hidden routes (results.hidden): how many the rules left out, and why, each reason once.
+private fun hiddenArgs(hidden: List<uk.noammm.kav.ext.Pipeline.Hidden>) = org.json.JSONObject().put("count", hidden.size)
+    .put("reasons", org.json.JSONArray(hiddenReasons(hidden)))
+
 // Why the hidden routes were left out, as their extensions said it, each reason once.
 private fun hiddenReasons(hidden: List<uk.noammm.kav.ext.Pipeline.Hidden>): List<String> = hidden.mapNotNull { it.reason }.distinct()
 
@@ -1229,3 +1282,29 @@ private fun ruleFailed(f: uk.noammm.kav.ext.Pipeline.Failure): String =
 
 private fun notChecked(f: uk.noammm.kav.ext.Pipeline.Failure): String =
     T("Not checked with ${ruleName(f).replaceFirstChar { it.lowercase() }} (\u2068${f.pinned.label}\u2069).", "המסלולים לא נבדקו לפי ${ruleName(f)} (\u2068${f.pinned.label}\u2069).")
+
+// A plan that failed: a sad face, what went wrong, and Try again as a button, centered where Finding routes was. Another
+// way out, when there is one, sits under it as a plain button.
+@Composable
+private fun PlanFailed(
+    text: String, modifier: Modifier, onRetry: () -> Unit, other: Pair<String, () -> Unit>? = null,
+    icon: androidx.compose.ui.graphics.vector.ImageVector = Icons.Rounded.SentimentDissatisfied,
+) {
+    Column(
+        modifier.fillMaxWidth().padding(bottom = LocalBottomBarInset.current),
+        verticalArrangement = Arrangement.Center,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Box(Modifier.size(72.dp).clip(androidx.compose.foundation.shape.CircleShape).background(K.fill), contentAlignment = Alignment.Center) {
+            androidx.compose.material3.Icon(
+                icon,
+                contentDescription = null, tint = K.textSecondary, modifier = Modifier.size(40.dp),
+            )
+        }
+        Spacer(Modifier.height(K.gap4))
+        Text(text, style = K.type.subhead, color = K.textSecondary, textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        Spacer(Modifier.height(K.gap4))
+        KavButton(T("Try again", "נסו שוב"), onRetry, style = ButtonStyle.Secondary)
+        other?.let { (label, go) -> KavButton(label, go, Modifier.padding(top = K.gap2), style = ButtonStyle.Plain) }
+    }
+}

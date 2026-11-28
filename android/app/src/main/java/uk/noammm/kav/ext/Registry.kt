@@ -22,6 +22,10 @@ class Registry(val dir: File) {
 
         // The folder and file name an identity's things are kept under.
         fun stateKey(identity: String) = sha256(identity.toByteArray()).copyOf(16).hex()
+
+        // The folder a package's files are kept in under dir, by its digest: for reading one of them (a theme's font)
+        // before the registry is open.
+        fun packageDir(dir: File, sha256: String) = File(File(dir, "pkgs"), sha256)
     }
 
     // enabled: the rider's switch, off until they turn it on, and enabledAt when it last was (0 before Kav kept it).
@@ -154,6 +158,10 @@ class Registry(val dir: File) {
     private fun forget(gone: Installed) {
         File(File(dir, "net"), stateKey(gone.identity) + ".json").delete()
         Slots.Picks.drop(dir, gone.identity)
+        TripAccess.drop(dir, gone.identity)
+        // Its widgets keep their place and say it's gone; what they showed goes with it.
+        Widgets.dropKept(dir, gone.identity)
+        Widgets.refresh(gone.identity, ask = false)
         Screens.drop(dir, gone.identity)
         Selections.drop(dir, gone.namespace)
     }
@@ -163,6 +171,9 @@ class Registry(val dir: File) {
         val new = how(old)
         if (new != old) commit(list.map { if (it.identity == identity) new else it })
         if (!new.enabled || new.problem.isNotEmpty()) Native.retire(identity)
+        // Its widgets on the home screen follow its switch: off at once, and on with what they last showed until its code
+        // answers (Native asks once it has loaded).
+        if (new.enabled != old.enabled || new.problem != old.problem) Widgets.refresh(identity, ask = false)
     }
 
     private fun commit(next: List<Installed>) {

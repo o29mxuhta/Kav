@@ -95,7 +95,8 @@ internal fun ClockGlyph(tint: Color = K.muted, size: androidx.compose.ui.unit.Dp
 
 @Composable
 fun LiveGlyph(tint: Color = K.realtime, size: androidx.compose.ui.unit.Dp = 11.dp) {
-    Canvas(Modifier.size(size)) {
+    // Its waves go out to the end side, toward the time it marks.
+    Canvas(Modifier.size(size)) { mirrorInRtl {
         val w = this.size.width; val h = this.size.height; val sw = w * .11f
         drawCircle(tint, w * .13f, Offset(w * .24f, h * .80f))
         for (r in listOf(.42f, .70f)) {
@@ -106,17 +107,18 @@ fun LiveGlyph(tint: Color = K.realtime, size: androidx.compose.ui.unit.Dp = 11.d
                 style = Stroke(sw, cap = StrokeCap.Round),
             )
         }
-    }
+    } }
 }
 
 @Composable
 fun LiveOffGlyph(tint: Color = K.dim, size: androidx.compose.ui.unit.Dp = 11.dp) {
     Box(contentAlignment = Alignment.Center) {
         LiveGlyph(tint, size)
-        Canvas(Modifier.size(size)) {
+        // Across the waves, which way they face.
+        Canvas(Modifier.size(size)) { mirrorInRtl {
             val w = this.size.width; val h = this.size.height
             drawLine(tint, Offset(w * .14f, h * .86f), Offset(w * .86f, h * .14f), w * .11f, StrokeCap.Round)
-        }
+        } }
     }
 }
 
@@ -183,7 +185,7 @@ fun PlanHeader(
     // A place of the way moved, held or by its handle: the start, the stops and the destination, counted from the start, 0.
     onMove: (from: Int, to: Int) -> Unit = { _, _ -> },
 ) {
-    Column(Modifier.fillMaxWidth().animateContentSize(tween(260)).padding(horizontal = K.gap4, vertical = K.gap2)) {
+    Column(Modifier.fillMaxWidth().animateContentSize(tween(260)).padding(horizontal = K.gap4, vertical = K.gap3)) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(K.gap3)) {
             if (onBack != null) BackButton(onBack)
             // The way from start to destination on one card, a hairline between its places. Each place, the start too,
@@ -289,7 +291,7 @@ fun PlanHeader(
                 Box(Modifier.graphicsLayer { rotationZ = spin }) {
                     KavIconButton(
                         Icons.Rounded.SwapVert, T("Swap start and destination", "החלפת התחלה ויעד"),
-                        { turned += 180f; onSwap() }, floating = true,
+                        { turned += 180f; onSwap() }, floating = true, tint = K.text,
                     )
                 }
             }
@@ -595,17 +597,18 @@ fun ItineraryCard(it: Transit.Itinerary, r: Transit.Resolved, asked: Long = 0, f
             androidx.compose.animation.fadeOut(tween(120)),
         ) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(K.gap3)) {
-                noted.forEachIndexed { i, (kind, label) ->
+                noted.forEachIndexed { i, (_, label) ->
                     // The fare's dot parts them, as on the line above.
                     if (i > 0) Text("•", style = K.type.subhead, color = K.dim)
                     Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(K.gap1)) {
-                        if (kind == "access") AccessibleGlyph() else GlobeGlyph()
+                        GlobeGlyph()
                         Text(label, style = K.type.subhead)
                     }
                 }
             }
         }
-        RouteTags(it)
+        // Every ride on a vehicle marked wheelchair accessible (the timetable says nothing of stops and walks): the last tag.
+        RouteTags(it, last = if (Shown.accessibility && it.accessible) T("Wheelchair accessible", "נגיש לכיסא גלגלים") else null)
         footer?.invoke()
     }
 }
@@ -624,6 +627,7 @@ private class StripItem(
     val minutes: Int,
     val alert: Int = 0,
     val ride: Transit.Leg? = null,
+    val meters: Int = 0,
 )
 
 private fun stripItems(it: Transit.Itinerary): List<StripItem> {
@@ -634,13 +638,13 @@ private fun stripItems(it: Transit.Itinerary): List<StripItem> {
             Transit.LegKind.WALK -> {
                 val last = out.lastOrNull()
                 if (last != null && last.kind == Transit.LegKind.WALK) {
-                    out[out.size - 1] = StripItem(Transit.LegKind.WALK, last.minutes + l.minutes)
-                } else out.add(StripItem(Transit.LegKind.WALK, l.minutes))
+                    out[out.size - 1] = StripItem(Transit.LegKind.WALK, last.minutes + l.minutes, meters = last.meters + l.meters)
+                } else out.add(StripItem(Transit.LegKind.WALK, l.minutes, meters = l.meters))
             }
             Transit.LegKind.RIDE, Transit.LegKind.TAXI, Transit.LegKind.BIKE -> {
                 val alert = it.legs.getOrNull(it.legs.indexOf(l) - 1)
                     ?.takeIf { w -> w.kind == Transit.LegKind.WAIT }?.alertCategory ?: 0
-                out.add(StripItem(l.kind, l.minutes, alert, l))
+                out.add(StripItem(l.kind, l.minutes, alert, l, l.meters))
             }
             else -> {}
         }
@@ -653,29 +657,41 @@ private fun showMinutes(leg: StripItem): Boolean = stripShowsMinutes(leg.minutes
 // A step's minutes show in a route's strip from five on; a shorter walk is its walker alone.
 internal fun stripShowsMinutes(minutes: Int): Boolean = minutes >= 5
 
-// A walk in a route's strip: the walker, with its minutes where they show. Home's latest route draws its walks with it
-// too, so the two can't come to differ.
+// A walk in a route's strip: the walker, with its minutes where they show, or its distance when the walk is the whole
+// route, whose minutes the card's time already says. Home's latest route draws its walks with it too, so the two can't
+// come to differ.
 @Composable
-internal fun StripWalk(minutes: Int) {
+internal fun StripWalk(minutes: Int, distance: String? = null) {
     Row(
         Modifier.height(28.dp).clearAndSetSemantics {
-            contentDescription = if (stripShowsMinutes(minutes)) T("Walk $minutes min", "הליכה $minutes דק׳") else T("Walk", "הליכה")
+            contentDescription = when {
+                distance != null -> T("Walk $distance", "הליכה $distance")
+                stripShowsMinutes(minutes) -> T("Walk $minutes min", "הליכה $minutes דק׳")
+                else -> T("Walk", "הליכה")
+            }
         },
         verticalAlignment = Alignment.CenterVertically,
     ) {
         WalkGlyph(Ink.muted, 18.dp)
-        if (stripShowsMinutes(minutes)) {
+        val said = distance ?: "$minutes".takeIf { stripShowsMinutes(minutes) }
+        if (said != null) {
             Spacer(Modifier.width(4.dp))
-            Text("$minutes", fontSize = 14.sp, color = Ink.text)
+            Text(said, fontSize = 14.sp, color = Ink.text)
         }
     }
 }
+
+// A route that is one walk or one ride on a bike: the strip says how far, as the card's time says how long.
+private fun aloneDistance(shown: List<StripItem>): String? =
+    shown.singleOrNull()?.takeIf { it.kind != Transit.LegKind.RIDE && it.kind != Transit.LegKind.TAXI && it.meters > 0 }
+        ?.let { distanceLabel(it.meters.toDouble()) }
 
 private val PIP_OVERHANG = 5.dp
 
 @Composable
 internal fun RouteStrip(it: Transit.Itinerary, r: Transit.Resolved) {
     val shown = stripItems(it)
+    val distance = aloneDistance(shown)
     FlowRow(
         verticalArrangement = Arrangement.spacedBy(4.dp),
         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -710,17 +726,22 @@ internal fun RouteStrip(it: Transit.Itinerary, r: Transit.Resolved) {
                 Transit.LegKind.TAXI -> leg.ride?.let { GettPill(it) }
                 Transit.LegKind.BIKE -> Row(
                     Modifier.height(28.dp).clearAndSetSemantics {
-                        contentDescription = if (showMinutes(leg)) T("Cycle ${leg.minutes} min", "רכיבה ${leg.minutes} דק׳") else T("Cycle", "רכיבה")
+                        contentDescription = when {
+                            distance != null -> T("Cycle $distance", "רכיבה $distance")
+                            showMinutes(leg) -> T("Cycle ${leg.minutes} min", "רכיבה ${leg.minutes} דק׳")
+                            else -> T("Cycle", "רכיבה")
+                        }
                     },
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     CycleGlyph(leg.ride)
-                    if (showMinutes(leg)) {
+                    val said = distance ?: "${leg.minutes}".takeIf { showMinutes(leg) }
+                    if (said != null) {
                         Spacer(Modifier.width(4.dp))
-                        Text("${leg.minutes}", fontSize = 14.sp, color = Ink.text)
+                        Text(said, fontSize = 14.sp, color = Ink.text)
                     }
                 }
-                else -> StripWalk(leg.minutes)
+                else -> StripWalk(leg.minutes, distance)
             }
             }
         }
@@ -770,11 +791,14 @@ internal fun CycleGlyph(leg: Transit.Leg?, tint: Color = Ink.muted, size: androi
         -1 -> Icons.Rounded.DirectionsCar
         else -> null
     }
-    if (icon == null) BikeGlyph(tint, size) else Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size))
+    // A scooter or moped faces the way the trip reads, as the bike does; the car is seen from the front.
+    val turned = icon != Icons.Rounded.DirectionsCar && androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+    if (icon == null) BikeGlyph(tint, size)
+    else Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(size).graphicsLayer { if (turned) scaleX = -1f })
 }
 
-// The same leg in words, with who runs a shared vehicle and how long it takes.
-internal fun cycleLabel(leg: Transit.Leg): String {
+// The same leg in words, with who runs a shared vehicle and how long it takes, unless that is said beside it.
+internal fun cycleLabel(leg: Transit.Leg, minutes: Boolean = true): String {
     val what = when (leg.shared) {
         0 -> T("Cycle", "אופניים")
         3, 4 -> T("Shared scooter", "קורקינט שיתופי")
@@ -782,19 +806,19 @@ internal fun cycleLabel(leg: Transit.Leg): String {
         -1 -> T("Shared car", "רכב שיתופי")
         else -> T("Shared bike", "אופניים שיתופיים")
     }
-    return listOf(what, leg.sharedBy, durMinutes(leg.minutes)).filter { it.isNotBlank() }.joinToString(" · ")
+    return listOf(what, leg.sharedBy, if (minutes) durMinutes(leg.minutes) else "").filter { it.isNotBlank() }.joinToString(" · ")
 }
 
 @Composable
 internal fun BikeGlyph(tint: Color = K.muted, size: androidx.compose.ui.unit.Dp = 18.dp) {
-    Canvas(Modifier.size(size)) {
+    Canvas(Modifier.size(size)) { mirrorInRtl {
         val w = this.size.width; val h = this.size.height; val sw = w * .08f
         drawCircle(tint, w * .22f, Offset(w * .24f, h * .70f), style = Stroke(sw))
         drawCircle(tint, w * .22f, Offset(w * .76f, h * .70f), style = Stroke(sw))
         drawLine(tint, Offset(w * .24f, h * .70f), Offset(w * .46f, h * .38f), sw, StrokeCap.Round)
         drawLine(tint, Offset(w * .46f, h * .38f), Offset(w * .76f, h * .70f), sw, StrokeCap.Round)
         drawLine(tint, Offset(w * .46f, h * .38f), Offset(w * .66f, h * .38f), sw, StrokeCap.Round)
-    }
+    } }
 }
 
 @Composable
@@ -811,10 +835,11 @@ private fun DepartureLine(it: Transit.Itinerary, r: Transit.Resolved, now: Long,
         )
         return
     }
-    // A shared bike or scooter route has no departures: say what it rides and who runs it.
+    // A shared bike or scooter route has no departures: say what it rides and who runs it, and its
+    // minutes unless they are the whole route's, which the card's time says.
     val shared = it.legs.firstOrNull { l -> l.shared != 0 }
     if (shared != null && it.legs.none { l -> l.kind == Transit.LegKind.RIDE }) {
-        Text(cycleLabel(shared), style = K.type.subhead)
+        Text(cycleLabel(shared, minutes = shared.minutes != it.durationMin), style = K.type.subhead)
         return
     }
     val rideIndex = it.legs.indexOfFirst { leg -> leg.kind == Transit.LegKind.RIDE }
@@ -887,9 +912,7 @@ private fun DepartureLine(it: Transit.Itinerary, r: Transit.Resolved, now: Long,
 private const val MARK = "mark"
 
 private fun cardNotes(it: Transit.Itinerary, r: Transit.Resolved): List<Pair<String, String>> {
-    val out = ArrayList<Pair<String, String>>(2)
-    // Every ride on a vehicle marked wheelchair accessible: the timetable says nothing of stops and walks.
-    if (Shown.accessibility && it.accessible) out.add("access" to T("Wheelchair accessible", "נגיש לכיסא גלגלים"))
+    val out = ArrayList<Pair<String, String>>(1)
     val g = if (Shown.co2) uk.noammm.kav.data.Emissions.grams(it, r) else -1
     if (g >= 0) out.add("co2" to co2(g))
     return out

@@ -10,22 +10,24 @@ package uk.noammm.kav.ext
 //
 // Each later kind or use is added here with a key, and gets explanations with no other change.
 object ExtUses {
-    enum class What { KIND, SEES_SEARCHES, CHANGES_RESULTS, KEEPS_DATA, PERMISSIONS, SCREENS, TAB, HOME, LOOK, SLOT_HOME, SLOT_RESULTS, SLOT_TRIP, SLOT_STOP, NATIVE, ADDS, ACTIONS, PARTS, HOOKS }
+    enum class What { KIND, SEES_SEARCHES, CHANGES_RESULTS, KEEPS_DATA, PERMISSIONS, SCREENS, TAB, HOME, LOOK, SLOT_HOME, SLOT_RESULTS, SLOT_TRIP, SLOT_STOP, WIDGETS, NATIVE, ADDS, ACTIONS, PARTS, HOOKS, SEES_SCREEN }
 
     // key: what an explanation names it by. detail: the kind's capability, what it changes (as capabilities) or the
     // permissions. note: the publisher's explanation (English, Hebrew), when it gave one.
     class Line(val key: String, val what: What, val detail: List<String>, val note: Pair<String, String>?)
 
     // The kinds Kav runs today, in the order they're listed.
-    val KINDS = listOf(Capabilities.PLAN, Capabilities.BOARD, Pipeline.WALK, Pipeline.TRANSFER, Pipeline.FILTER, Pipeline.RANK, Pipeline.ANNOTATE)
-    // The kinds that are given the rider's trip searches.
-    private val SEARCHING = KINDS - Capabilities.BOARD
+    val KINDS = listOf(Capabilities.PLAN, Capabilities.BOARD, StopPhotoHook.CAPABILITY, TripButtons.CAPABILITY, KavPlans.ADD, TripAccess.HISTORY, TripAccess.FOLLOW, Pipeline.WALK, Pipeline.TRANSFER, Pipeline.FILTER, Pipeline.RANK, Pipeline.ANNOTATE)
+    // The kinds that are given the rider's trip searches (a stop photo is asked with the stop's place only; the trips
+    // ones have lines of their own, and only what the rider allows).
+    private val SEARCHING = KINDS - Capabilities.BOARD - StopPhotoHook.CAPABILITY - TripButtons.CAPABILITY - TripAccess.CAPABILITIES.toSet()
     // The route rules, by what they change in a search's results.
     val CHANGES = listOf(Pipeline.WALK, Pipeline.TRANSFER, Pipeline.FILTER, Pipeline.RANK, Pipeline.ANNOTATE)
     // Every key an explanation can name, for the developer kit: a kind's capability, or one of these.
-    val KEYS = KINDS + listOf("searches", "results", "data", "native", "permissions", "actions", "parts", MethodHooks.CAPABILITY) + SCREEN_KEYS + Manifest.ADDS
-    // Its own screens, a page the rider can pin as a tab, a Home body and a theme (ext/Pages.kt, ext/Looks.kt).
-    private val SCREEN_KEYS get() = listOf(PageSpecs.PAGE, "tab", PageSpecs.HOME, Looks.CAPABILITY) + Slots.CAPABILITIES
+    val KEYS = KINDS + listOf("searches", "results", "data", "native", "permissions", "actions", "parts", MethodHooks.CAPABILITY, ScreenPieces.CAPABILITY) + SCREEN_KEYS + Manifest.ADDS
+    // Its own screens, a page the rider can pin as a tab, a Home body, a theme and home screen widgets (ext/Pages.kt,
+    // ext/Looks.kt, ext/Widgets.kt).
+    private val SCREEN_KEYS get() = listOf(PageSpecs.PAGE, "tab", PageSpecs.HOME, Looks.CAPABILITY, Widgets.CAPABILITY) + Slots.CAPABILITIES
 
     fun of(m: Manifest): List<Line> {
         val caps = m.contributions.map { it.capability }.toSet()
@@ -36,18 +38,22 @@ object ExtUses {
             if (PageSpecs.PAGE in caps) line(PageSpecs.PAGE, What.SCREENS)
             if (screens?.tabs?.isNotEmpty() == true) line("tab", What.TAB)
             if (PageSpecs.HOME in caps) line(PageSpecs.HOME, What.HOME)
-            if (Looks.CAPABILITY in caps) line(Looks.CAPABILITY, What.LOOK)
+            if (Looks.declares(m)) line(Looks.CAPABILITY, What.LOOK)
             // What it says it adds that Kav can't see in its code (Manifest.adds): its maps, notifications, location, settings.
             for (a in m.adds) line(a, What.ADDS, listOf(a))
             // Its cards on Kav's own screens (ext/Slots.kt), on from when it's switched on.
             for ((k, what) in listOf(Slots.Kind.HOME to What.SLOT_HOME, Slots.Kind.RESULTS to What.SLOT_RESULTS, Slots.Kind.TRIP to What.SLOT_TRIP, Slots.Kind.STOP to What.SLOT_STOP))
                 if (k.capability in caps) line(k.capability, what)
+            // Its widgets on the home screen (ext/Widgets.kt), which show what its code gives them there.
+            if (Widgets.CAPABILITY in caps) line(Widgets.CAPABILITY, What.WIDGETS)
             // API 4: the actions it takes over, the parts of Kav's screens it changes, and hooks into Kav's own code.
             val actions = Actions.NAMES.filter { Actions.CAPABILITY + it in caps }
             if (actions.isNotEmpty()) line("actions", What.ACTIONS, actions)
             val parts = Parts.NAMES.filter { Parts.CAPABILITY + it in caps }
             if (parts.isNotEmpty()) line("parts", What.PARTS, parts)
             if (MethodHooks.CAPABILITY in caps) line(MethodHooks.CAPABILITY, What.HOOKS)
+            // A picture of Kav's screen with its pieces' boxes, never their text (ScreenPieces).
+            if (ScreenPieces.CAPABILITY in caps) line(ScreenPieces.CAPABILITY, What.SEES_SCREEN)
             if (caps.any { it in SEARCHING }) line("searches", What.SEES_SEARCHES)
             val changes = CHANGES.filter { it in caps }
             if (changes.isNotEmpty()) line("results", What.CHANGES_RESULTS, changes)

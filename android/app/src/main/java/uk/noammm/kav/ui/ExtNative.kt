@@ -58,13 +58,13 @@ object ExtNative {
         }
 
         override fun row(c: Context, icon: String?, title: String, subtitle: String?, onClick: Runnable?) = compose(c) {
-            ListRow(title, subtitle = subtitle, onClick = onClick?.let { r -> { r.run() } },
+            ListRow(title, subtitle = subtitle, subtitleMaxLines = Int.MAX_VALUE, onClick = onClick?.let { r -> { r.run() } },
                 leading = iconOf(icon)?.let { v -> { Icon(v, null, tint = K.dim, modifier = Modifier.size(20.dp)) } })
         }
 
         override fun switchRow(c: Context, title: String, subtitle: String?, on: Boolean, onChange: KavUi.Changed<Boolean>) = compose(c) {
             var v by remember { mutableStateOf(on) }
-            ListRow(title, subtitle = subtitle, trailing = { KavSwitch(v) }, onClick = { v = !v; onChange.changed(v) }, chevron = false)
+            ListRow(title, subtitle = subtitle, subtitleMaxLines = Int.MAX_VALUE, trailing = { KavSwitch(v) }, onClick = { v = !v; onChange.changed(v) }, chevron = false)
         }
 
         override fun textField(c: Context, value: String, placeholder: String, onChange: KavUi.Changed<String>) = compose(c) {
@@ -104,7 +104,7 @@ object ExtNative {
         }
 
         override fun iconButton(c: Context, icon: String?, label: String, onClick: Runnable) =
-            compose(c) { KavIconButton(iconOf(icon) ?: iconOf("info")!!, label, { onClick.run() }) }
+            compose(c) { KavIconButton(iconOf(icon) ?: iconOf("info")!!, label, { onClick.run() }, floating = true, tint = K.text) }
 
         // One view at a time, each in from the side with Settings' own motion (forward, backward).
         override fun pages(c: Context, first: View): KavUi.Pages {

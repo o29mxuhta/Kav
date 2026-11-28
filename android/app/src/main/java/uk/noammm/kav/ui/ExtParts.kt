@@ -22,16 +22,32 @@ import uk.noammm.kav.ext.SafeMode
 // when one gives a view. With none, the part is drawn as it always is, and about is never built. of: what the part
 // shows, so its views are made again only when that changes. The views sit as far from Kav's own as its cards do from
 // each other, and inset as far as the part's cards are; ownGap: the part's content keeps the space above itself (Home's
-// cards), so each view keeps the same space above it.
+// cards), so each view keeps the same space above it. surface: what each view sits on, inside its inset (navigation's
+// banner, over the map, is on glass as the step dots are).
 @Composable
-internal fun KavPart(name: String, of: Any?, about: () -> JSONObject, inset: Dp = 0.dp, ownGap: Boolean = false, content: @Composable () -> Unit) {
+internal fun KavPart(name: String, of: Any?, about: () -> JSONObject, inset: Dp = 0.dp, ownGap: Boolean = false,
+    surface: Modifier = Modifier, content: @Composable () -> Unit) {
     val part = rememberPart(name, of, about)
     if (part == null) { content(); return }
-    val at = Modifier.padding(start = inset, end = inset, top = if (ownGap) K.gap4 else 0.dp)
+    val at = Modifier.padding(start = inset, end = inset, top = if (ownGap) K.gap4 else 0.dp).then(surface)
     Column(Modifier.fillMaxWidth(), verticalArrangement = Arrangement.spacedBy(if (ownGap) 0.dp else K.gap4)) {
         for ((p, v) in part.before) PartView(p, v, at)
         part.replaced?.let { (p, v) -> PartView(p, v, at) } ?: content()
         for ((p, v) in part.after) PartView(p, v, at)
+    }
+}
+
+// A part that is one row of a lazy list (a departure on a stop's board): the row's own modifier, its item animation, on
+// Kav's row alone when no extension adds to it, and on the views and the row together when one does, so they move as one
+// item. Rows of such a list sit with no space between them, and so do the views.
+@Composable
+internal fun KavPartRow(name: String, of: Any?, about: () -> JSONObject, modifier: Modifier, content: @Composable (Modifier) -> Unit) {
+    val part = rememberPart(name, of, about)
+    if (part == null) { content(modifier); return }
+    Column(modifier.fillMaxWidth()) {
+        for ((p, v) in part.before) PartView(p, v)
+        part.replaced?.let { (p, v) -> PartView(p, v) } ?: content(Modifier)
+        for ((p, v) in part.after) PartView(p, v)
     }
 }
 
@@ -45,11 +61,13 @@ internal class PartViews(
 @Composable
 internal fun rememberPart(name: String, of: Any?, about: () -> JSONObject): PartViews? {
     // ExtNative.ready rises when an extension's code has started, ExtUi.tick when one is switched off or removed.
+    // Parts.remade rises when an extension calls Kav.part for this part again, to say its views changed.
+    val remade = Parts.remade(name)
     val pieces = if (SafeMode.active || ExtNative.ready < 0 || ExtUi.tick < 0) emptyList() else Native.partsOf(name)
     if (pieces.isEmpty()) return null
     val ctx = LocalContext.current
     // Each view made once for what the part shows; a replacement that makes none gives way to the next, then Kav's own.
-    return remember(pieces, of) {
+    return remember(pieces, of, remade) {
         val text = runCatching { about().toString() }.getOrDefault("{}")
         val made = pieces.associateWith { p -> Native.view(p.identity, "part $name ${p.where}") { p.card.create(ctx, text) } }
         fun views(list: List<Parts.Piece>) = list.mapNotNull { p -> made[p]?.let { p to it } }

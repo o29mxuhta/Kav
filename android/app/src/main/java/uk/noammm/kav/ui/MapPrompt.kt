@@ -9,7 +9,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import uk.noammm.kav.data.MapFile
 import uk.noammm.kav.data.MapPack
 
@@ -17,17 +16,24 @@ import uk.noammm.kav.data.MapPack
 // online.
 private var dismissed by mutableStateOf(false)
 
-// Whether it would show: StartPopups decides when. Only a map that can't draw without its download asks.
+// Once it's up, it stays until it's done or put off, through its own download.
+private var asked by mutableStateOf(false)
+
+// Whether it would show: StartPopups decides when. Only a map that can't draw without its download asks, and not when
+// it's already downloading (setup starts it on Wi-Fi): the map shows its progress itself.
 internal val mapPromptWanted: Boolean
-    get() = !dismissed && MapFile.provider().let { it.needsPack && it.pack.state !is MapPack.State.Ready }
+    get() = !dismissed && MapFile.provider().let {
+        it.needsPack && it.pack.state !is MapPack.State.Ready && (asked || it.pack.state !is MapPack.State.Downloading)
+    }
 
 @Composable
 fun MapPrompt() {
     val pack = MapFile.provider().pack
     val state = pack.state
     if (dismissed || state is MapPack.State.Ready) return
+    LaunchedEffect(Unit) { asked = true }
     val ctx = LocalContext.current
-    Dialog(onDismissRequest = { dismissed = true }) {
+    StartDialog(onDismissRequest = { dismissed = true }) {
         Column(
             Modifier.fillMaxWidth().panel(K.rCard, solid = true).padding(K.gap5),
             verticalArrangement = Arrangement.spacedBy(K.gap4),
@@ -35,12 +41,8 @@ fun MapPrompt() {
             Text(T("Download the map", "הורדת המפה"), style = K.type.title)
             Text(
                 T(
-                    "Kav keeps its map on your phone instead of loading tiles from a server as " +
-                        "you go, so nothing tracks where you look. It's about ${pack.bytes shr 20} MB for " +
-                        "all of Israel, downloaded once. After that the map works with no signal.",
-                    "Kav שומרת את המפה על הטלפון שלכם במקום לטעון אריחים משרת תוך כדי תנועה, " +
-                        "כך שאף אחד לא עוקב אחרי מה שאתם מסתכלים עליו. מדובר בכ-${pack.bytes shr 20} מגה-בייט " +
-                        "לכל ישראל, בהורדה חד-פעמית. אחר כך המפה עובדת גם בלי קליטה.",
+                    "About ${pack.bytes shr 20} MB for all of Israel, once. Then the map works without signal.",
+                    "בערך ${megabytes(pack.bytes shr 20)} לכל ישראל, פעם אחת. אחר כך המפה עובדת גם בלי קליטה.",
                 ),
                 fontSize = 14.sp, color = K.muted, lineHeight = 20.sp,
             )

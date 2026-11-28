@@ -19,6 +19,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.layout
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
@@ -84,18 +85,28 @@ internal fun HomeScreen(
     val recentNames = remember(recentTrips) {
         recentTrips.map { it.to.name.substringBefore("/").trim() }.filter { it.isNotBlank() }.distinct().take(2)
     }
+    // The map at the top (MapPicture.kt), the glass of the places' tiles over it, and paying under Settings, which goes
+    // with the map as the list scrolls.
+    val mapShown = ext == null && HomeMap.shown(ctx, model.here)
+    val mapLiquid = rememberLiquidBackdrop()
+    val payButton = Shown.payments || PayMode.lost.isNotEmpty() || PayMode.offer
+    val listState = androidx.compose.foundation.lazy.rememberLazyListState()
+    val payFade = with(LocalDensity.current) { 56.dp.toPx() }
+    val payGone by remember { derivedStateOf { listState.firstVisibleItemIndex > 0 || listState.firstVisibleItemScrollOffset >= payFade } }
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             // No title: where to is what this screen is for, so it leads, with Settings beside it.
             FloatingTop(top = {
+                // On a skin's topBar, with room under the field.
                 Row(
-                    Modifier.padding(start = K.gap4, end = K.gap4, top = K.gap3).fillMaxWidth(),
+                    Modifier.fillMaxWidth().topBar()
+                        .padding(start = K.gap4, end = K.gap4, top = K.gap3, bottom = if (K.skin?.get("topBar") != null) K.gap3 else 0.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(K.gap3),
                 ) {
                     Row(
                         Modifier.weight(1f).heightIn(min = 52.dp)
-                            .glassSurface(26.dp)
+                            .then(K.skin?.get("field")?.let { Modifier.clip(RoundedCornerShape(K.rCard)).skin(it) } ?: Modifier.glassSurface(K.rCard))
                             .clickable(role = Role.Button, onClickLabel = T("Search destination", "חיפוש יעד"), onClick = onSearch)
                             .padding(horizontal = K.gap4),
                         verticalAlignment = Alignment.CenterVertically,
@@ -108,20 +119,51 @@ internal fun HomeScreen(
                         if (!uk.noammm.kav.ext.Actions.take(null, "settings.open") { org.json.JSONObject() }) model.settingsOpen = true
                     }
                 }
+                // Under Settings, taking no room from the list under the top.
+                if (payButton && !payGone) Box(
+                    Modifier.fillMaxWidth().padding(end = K.gap4)
+                        .layout { m, c ->
+                            val p = m.measure(c.copy(minHeight = 0))
+                            layout(p.width, 0) { p.place(0, K.gap3.roundToPx()) }
+                        }
+                        .graphicsLayer {
+                            val by = if (listState.firstVisibleItemIndex > 0) payFade else listState.firstVisibleItemScrollOffset.toFloat().coerceAtMost(payFade)
+                            alpha = 1f - by / payFade
+                        },
+                    contentAlignment = Alignment.TopEnd,
+                ) { PayButton() }
             }, estimate = K.gap3 + 52.dp, fade = 28.dp) { topSpace, backdrop ->
             LazyColumn(
                 Modifier.fillMaxSize().then(backdrop).watchTouch(ext),
+                state = listState,
                 contentPadding = PaddingValues(start = K.gap4, end = K.gap4, top = topSpace + K.gap4,
                     bottom = K.gap6 + LocalBottomBarInset.current),
             ) {
                 // An extension's Home body, under Kav's search, with the trip under way and the way back above it.
                 val journey = model.activeJourney
+                // From under the top to the places' tiles, which sit over its foot. A tap where it shows, above them, only
+                // moves to the Live tab (Noam, 27 Nov 2026).
+                if (mapShown) item(key = "map") {
+                    HomeLiveMap(model, PaddingValues(top = topSpace, bottom = MAP_HEIGHT - MAP_WINDOW), Modifier
+                        .clickable(remember { androidx.compose.foundation.interaction.MutableInteractionSource() }, indication = null,
+                            role = Role.Button, onClickLabel = T("Open Live", "מעבר ללשונית בזמן אמת")) {
+                            model.tab = uk.noammm.kav.Tab.Live
+                        }
+                        .layout { m, c ->
+                            val side = K.gap4.roundToPx()
+                            val above = (topSpace + K.gap4).roundToPx()
+                            val p = m.measure(androidx.compose.ui.unit.Constraints.fixed(c.maxWidth + 2 * side, MAP_HEIGHT.roundToPx()))
+                            layout(c.maxWidth, (MAP_WINDOW.roundToPx() - above).coerceAtLeast(0)) { p.place(-side, -above) }
+                        }
+                        .glassBackdrop(mapLiquid))
+                } else if (payButton) item(key = "pay-room") { Spacer(Modifier.height(48.dp)) }
                 if (ext != null && ext.covers(journey != null)) {
                     extHomeItems(model, ext, journey?.let { j -> { JourneyCard(model, j, onResume) } })
                     return@LazyColumn
                 }
                 ext?.let { extHomeStrip(it) }
                 item(key = "favourites") { KavPart("home.places", favourites, { JSONObject() }) {
+                  CompositionLocalProvider(LocalLiquidBackdrop provides if (mapShown) mapLiquid else null) {
                     FavouriteStrip(
                         favourites,
                         // A trip to a saved place goes by the name it was saved under, with where it is under that.
@@ -131,7 +173,9 @@ internal fun HomeScreen(
                         horizontalPadding = 0.dp,
                         onReorder = { save(it) },
                         onRemove = { f -> save(favourites.filter { it.id != f.id }) },
+                        glass = mapShown,
                     )
+                  }
                 } }
                 // Each card comes, goes and moves with a fade and a glide: a trip starting or ending, the first recent trip.
                 model.activeJourney?.let { journey -> item(key = "journey") {
@@ -142,12 +186,15 @@ internal fun HomeScreen(
                 if (model.activeJourney == null) item(key = "suggestions") {
                     KavPart("home.suggestions", Unit, { JSONObject() }, ownGap = true) { HomeSuggestions(model, onLatest, listMotion().padding(top = K.gap4)) }
                 }
+                // The bus the phone travels with, to follow (OnBus.kt).
+                item(key = "on-bus") { OnBusCard(model, listMotion()) }
                 // Extensions' cards (ExtSlots.kt), only those the rider switched on, under Kav's own.
                 if (ExtShown.slots.isNotEmpty()) item(key = "ext-slots") { HomeSlots(model, listMotion()) }
                 // Extension tickets and their ride history stay on Home after the payment extension is switched off.
+                // The card only with something in it: tickets or rides.
                 val showPay = Shown.payments || PayMode.lost.isNotEmpty() || PayMode.offer
-                if (showPay || TicketStore.kept.any { it.key.startsWith("ext:") } ||
-                    TicketStore.history.any { it.key.startsWith("ext:") }) item(key = "payments") {
+                if ((showPay || TicketStore.kept.any { it.key.startsWith("ext:") } || TicketStore.history.any { it.key.startsWith("ext:") }) &&
+                    (TicketStore.kept.isNotEmpty() || TicketStore.history.isNotEmpty())) item(key = "payments") {
                     KavPart("home.pay", Unit, { JSONObject() }, ownGap = true) { PayCard(listMotion().padding(top = K.gap4), showPay) }
                 }
                 // Its caption and See all inside the card, as the suggestions card has its pages' captions.
@@ -175,6 +222,8 @@ internal fun HomeScreen(
         }
     }
 
+    // Follow's sheet, from the on-bus card in the list above (OnBus.kt).
+    OnBusSheet(model)
     if (creating) FavouriteEditor(
         existing = null,
         onSave = { name, icon ->
@@ -201,8 +250,16 @@ internal fun HomeScreen(
     }
 }
 
+// Home's map, tall from under the top, and where the places' tiles start over it.
+private val MAP_HEIGHT = 300.dp
+private val MAP_WINDOW = 196.dp
+
 // The name a trip planned from the rider's own position is saved with (DirectionsOnline), in either language.
-private val SAVED_STARTS = setOf("Saved start", "נקודת ההתחלה השמורה")
+internal val SAVED_STARTS = setOf("Saved start", "נקודת ההתחלה השמורה")
+
+// Where a recent trip is planned from again: its start, or where the rider is now for one planned from where they were,
+// as its row says.
+internal fun recentStart(trip: RecentTrip): Transit.Place? = trip.from?.takeUnless { it.name in SAVED_STARTS }
 
 // A recent trip's row: its separator starts under the text, past the clock.
 private val RECENT_INSET = K.gap4 + 24.dp + K.gap3
@@ -274,14 +331,18 @@ private fun JourneyCard(model: KavModel, journey: ActiveJourney, onResume: () ->
             verticalAlignment = Alignment.Top,
             beyondViewportPageCount = 1,
         ) { page ->
-            Column(Modifier.fillMaxWidth().padding(horizontal = K.gap4).onSizeChanged { pageHeights[page] = it.height }.animateContentSize()) {
+            Column(Modifier.fillMaxWidth().padding(horizontal = K.gap4).onSizeChanged { pageHeights[page] = it.height }.animateContentSize(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f))) {
                 StepCard(steps[page], journey.resolved, active = page == current, now = now, chosen = journey.chosen,
                     fix = model.fix,
                     onChoose = { leg, option ->
                         model.activeJourney?.takeIf { it.trip === journey.trip }
                             ?.let { model.activeJourney = it.copy(chosen = it.chosen + (leg to option)) }
                     },
-                    report = { model.openReport(it) })
+                    report = { model.openReport(it) },
+                    // Paying for the ride as the trip's own page has it, an extension's ride.pay part too.
+                    pay = Shown.payments,
+                    tripArgs = { JSONObject().put("trip", uk.noammm.kav.ext.Slots.trip(journey.trip, journey.resolved)) },
+                    navParts = false)
             }
         }
         // The dots in the middle; back to the step on now, from another, at the end of the same row.
@@ -307,6 +368,13 @@ private fun JourneyCard(model: KavModel, journey: ActiveJourney, onResume: () ->
 // on every return to the Home tab.
 internal object Openings {
     var count by mutableIntStateOf(0)
+    // The openings Kav's own popups may come in (StartPopups): its screen started anew, or Kav back after AWAY_MS out of
+    // sight. A short visit to another app and back (paying in Rav-Pass, say) is not one, and neither is Kav's screen
+    // brought back by Android as it was left (a turned phone, or Kav closed in the background meanwhile).
+    var popups by mutableIntStateOf(0)
+    const val AWAY_MS = 60 * 60_000L
+    // When Kav last went out of sight, by the clock that doesn't jump with the time of day.
+    var leftAt = 0L
     // False while the launch screen's arrow flies off: a popup's window would cut it short.
     var launched by mutableStateOf(true)
 }

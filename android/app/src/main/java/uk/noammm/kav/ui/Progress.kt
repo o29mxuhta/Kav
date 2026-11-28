@@ -149,6 +149,24 @@ internal fun alongNext(at: Pair<Double, Double>, path: List<Pair<Double, Double>
 // Clearly nearer: a stretch passed already beats every one ahead by this much.
 private const val BACK_CLEAR_M = 50.0
 
+// How far along a walk the rider is, going on from where they were last, as on a ride (RideAlong): a walk that comes
+// back by where it set out (up one street and back along the next) isn't taken for where they are. Where the fix can't
+// tell two passes apart (within its accuracy), it's the one the walk gets to first: the nearest pass alone had the
+// rider halfway along a walk they hadn't begun.
+internal object WalkAlong {
+    private val last = HashMap<String, Double>()
+
+    fun of(shape: List<Pair<Double, Double>>, dep: Long, fix: Fix): Double {
+        if (shape.size < 2) return 0.0
+        val key = "$dep:${shape.first()}:${shape.last()}"
+        synchronized(last) {
+            val a = alongNext(fix.lat to fix.lon, shape, (last[key] ?: 0.0) - 30.0, max(15.0, fix.accuracy.toDouble()))
+            last[key] = a
+            return a
+        }
+    }
+}
+
 // How far along a ride the rider or their bus is, going on from where it was last: the road passing the same corner
 // again later (line 37's loop) isn't taken for where they are now, which showed the loop ridden while it was still ahead.
 internal object RideAlong {
@@ -293,6 +311,16 @@ private fun riding(fix: Fix, shape: List<Pair<Double, Double>>, onRoute: Double,
     shape.size >= 2 && distanceToPath(fix.lat, fix.lon, shape) < onRoute + fix.slack &&
         alongPath(fix.lat, fix.lon, shape) > past + 3 * fix.slack && fix.distanceTo(shape.first()) >= 3 * fix.slack && offWalks(fix, walks)
 
+// A bus of the ride can be the one the rider is on: one of its line is due at the stop within a few minutes or was due
+// already (it may be running late), or one is reported near them. Not while the next is still minutes away and the
+// bus they're on, another line's, only goes their next line's way for a while.
+private fun busCanBeThere(ride: Transit.Leg, wait: Transit.Leg?, r: Transit.Resolved, now: Long, fix: Fix): Boolean =
+    r.departures(ride, wait, now).filter { it.state != Transit.TimeState.CANCELED }.minOfOrNull { it.timeUtc }
+        .let { it == null || it <= now + DUE_SOON_S } ||
+        r.live.values.any { it.lineId == ride.lineId && it.hasLocation && fix.distanceTo(it.lat to it.lon) < NEAR_BUS_M }
+
+private const val DUE_SOON_S = 180L
+
 // Off every walk of the trip: by a walk's width, or at bus speed by nothing more than a rough fix's three slacks.
 private fun offWalks(fix: Fix, walks: List<List<Pair<Double, Double>>>): Boolean {
     val clear = (if (fix.speed > 5f) 0.0 else ON_WALK_M) + 3 * fix.slack
@@ -306,7 +334,7 @@ private fun onStep(step: Step, r: Transit.Resolved, chosen: Map<Int, Int>, fix: 
             (start == null || fix.distanceTo(start) > 100 + 3 * fix.slack)
     }
     is Step.Wait -> stepTarget(step, r, chosen)?.let { fix.distanceTo(it) < 40 - 3 * fix.slack } == true
-    is Step.Ride -> riding(fix, rideOf(step, chosen).shape, 50.0, 150.0, walks)
+    is Step.Ride -> rideOf(step, chosen).let { riding(fix, it.shape, 50.0, 150.0, walks) && busCanBeThere(it, step.wait, r, fix.at, fix) }
     is Step.Arrive -> stepTarget(step, r, chosen)?.let { fix.distanceTo(it) < 40 - 3 * fix.slack } == true
     else -> false
 }
@@ -347,8 +375,8 @@ private fun done(
                 // Past the stop along the ride's road, not coming up to it: the bus that brings a rider to a change of
                 // lines at this stop is on that road and moving too, with the stop still ahead.
                 val past = alongPath(live.lat, live.lon, ride.shape) > 20 + 3 * slack
-                onRoute && past && away > 40 + 3 * slack && live.speed > 5f && offWalks(live, walks) ||
-                    riding(live, ride.shape, 60.0, 150.0, walks)
+                (onRoute && past && away > 40 + 3 * slack && live.speed > 5f && offWalks(live, walks) ||
+                    riding(live, ride.shape, 60.0, 150.0, walks)) && busCanBeThere(ride, step.wait, r, now, live)
             } else {
                 val dep = departureOf(step, r, chosen)
                 dep.status != 3 && now >= dep.timeUtc && when {
@@ -360,8 +388,12 @@ private fun done(
         }
         is Step.Ride -> {
             val ride = rideOf(step, chosen)
-            (live != null && ride.shape.isNotEmpty() && live.distanceTo(ride.shape.last()) < 60 + slack) ||
-                if (live != null && target != null) live.distanceTo(target) < 45 + slack else now >= ride.arr + 60
+            // Near the stop the ride's own way round: its road passing close by before it gets there, as round a loop,
+            // isn't the stop yet.
+            val reached = live != null && (ride.shape.size < 2 ||
+                RideAlong.of(ride, live.lat to live.lon) > pathLength(ride.shape) - REACHED_M - slack)
+            (live != null && ride.shape.isNotEmpty() && reached && live.distanceTo(ride.shape.last()) < 60 + slack) ||
+                if (live != null && target != null) reached && live.distanceTo(target) < 45 + slack else now >= ride.arr + 60
         }
         is Step.Taxi -> if (live != null && target != null) live.distanceTo(target) < 45 + slack else now >= step.leg.arr
         is Step.Cycle -> if (live != null && target != null) live.distanceTo(target) < 45 + slack else now >= step.leg.arr
@@ -384,10 +416,13 @@ private fun walkedBack(steps: List<Step>, i: Int, chosen: Map<Int, Int>, fix: Fi
 }
 
 private fun rideLeftBehind(step: Step.Ride, chosen: Map<Int, Int>, fix: Fix): Boolean {
-    val shape = rideOf(step, chosen).shape
-    if (shape.size < 2) return false
-    return alongPath(fix.lat, fix.lon, shape) > pathLength(shape) - 60 - fix.slack
+    val ride = rideOf(step, chosen)
+    if (ride.shape.size < 2) return false
+    return RideAlong.of(ride, fix.lat to fix.lon) > pathLength(ride.shape) - 60 - fix.slack
 }
+
+// How far before the end of its road a ride counts as at its stop, by the way it goes.
+private const val REACHED_M = 150.0
 
 // Minutes until the ride reaches the rider's stop (minsLeft()): the time its last stop gets below.
 internal fun minutesToAlight(ride: Transit.Leg, r: Transit.Resolved, fix: Fix?, now: Long): Long =

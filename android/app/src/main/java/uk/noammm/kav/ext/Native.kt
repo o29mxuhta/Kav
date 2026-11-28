@@ -40,7 +40,8 @@ object Native {
     }
 
     // What one loaded extension added, by its identity. onAt: when the rider switched it on (Registry.Installed.enabledAt).
-    class Loaded(val identity: String, val name: String, val loader: ClassLoader, val sha256: String = "", val onAt: Long = 0) {
+    // nameHe: its name in Hebrew (Manifest.displayNameHe), "" when it has none.
+    class Loaded(val identity: String, val name: String, val loader: ClassLoader, val sha256: String = "", val onAt: Long = 0, val nameHe: String = "") {
         val cards = ConcurrentHashMap<String, Kav.Card>()
         val screens = ConcurrentHashMap<String, Kav.Screen>()
         val hooks = ConcurrentHashMap<String, Kav.Hook>()
@@ -51,6 +52,12 @@ object Native {
         val unhooks: MutableList<Kav.Unhook> = java.util.concurrent.CopyOnWriteArrayList()
         @Volatile var onSettings: Kav.SettingsChanged? = null
         @Volatile var settingsScreen: Kav.Screen? = null
+        // API 5: told about the trip the rider follows (TripEvents), while the rider allows it.
+        @Volatile var onTrip: Kav.TripListener? = null
+        // API 5: its home screen widgets' content, by widget id (Widgets).
+        val widgets = ConcurrentHashMap<String, Kav.Widget>()
+        // API 5: told its alarms (ExtAlarms).
+        @Volatile var onAlarm: Kav.Alarm? = null
     }
 
     private val loaded = ConcurrentHashMap<String, Loaded>()
@@ -77,7 +84,9 @@ object Native {
     fun settingsScreen(identity: String): Kav.Screen? = loaded[identity]?.settingsScreen
     fun isLoaded(identity: String) = loaded.containsKey(identity)
     fun provides(identity: String, hook: String) = loaded[identity]?.hooks?.containsKey(hook) == true
-    fun nameOf(identity: String): String? = loaded[identity]?.name
+    // The loaded extensions that provide a hook, with when each was switched on.
+    fun providing(hook: String): List<Pair<String, Long>> = loaded.values.filter { it.hooks.containsKey(hook) }.map { it.identity to it.onAt }
+    fun nameOf(identity: String): String? = loaded[identity]?.let { if (uk.noammm.kav.ui.T.rtl) it.nameHe.ifEmpty { it.name } else it.name }
 
     // The loaded extensions holding an action, and their views on a part, as Actions and Parts order them.
     fun actionsOf(name: String): List<Actions.Holder> = loaded.values.mapNotNull { l -> l.actions[name]?.let { Actions.Holder(l.identity, l.onAt, it) } }
@@ -94,6 +103,8 @@ object Native {
         if (gone != null || pending != null) {
             NativeMap.drop(identity)
             listOfNotNull(gone, pending).forEach(::release)
+            // Its widgets on the home screen say it's off.
+            Widgets.refresh(identity, ask = false)
         }
     }
 
@@ -116,6 +127,52 @@ object Native {
             Result.failure(IllegalStateException("late"))
         } catch (e: Exception) {
             Result.failure(IllegalStateException("interrupted"))
+        }
+    }
+
+    // A widget's content (Kav.Widget.content), or a tap told to it (tapped), the same way as a hook: null when it has no
+    // such widget, else its answer ("" for a tap), or a failure.
+    fun widget(identity: String, widget: String, args: String, deadlineMs: Long): Result<String>? {
+        val w = loaded[identity]?.widgets?.get(widget) ?: return null
+        return ask(identity, "widget $widget", deadlineMs) { w.content(args) ?: "null" }
+    }
+
+    fun widgetTap(identity: String, widget: String, tap: String, deadlineMs: Long): Result<String>? {
+        val w = loaded[identity]?.widgets?.get(widget) ?: return null
+        return ask(identity, "widget $widget tap", deadlineMs) { w.tapped(tap); "" }
+    }
+
+    private fun ask(identity: String, what: String, deadlineMs: Long, call: () -> String): Result<String> {
+        val f = hooks.submit<String?> { NativeGuard.call(identity, what, call) }
+        return try {
+            f.get(deadlineMs.coerceAtLeast(1), java.util.concurrent.TimeUnit.MILLISECONDS)?.let { Result.success(it) }
+                ?: Result.failure(IllegalStateException("crashed"))
+        } catch (e: java.util.concurrent.TimeoutException) {
+            Result.failure(IllegalStateException("late"))
+        } catch (e: Exception) {
+            Result.failure(IllegalStateException("interrupted"))
+        }
+    }
+
+    // One of its alarms came (ExtAlarms): its listener told, waited for as a hook is, so Android keeps Kav up meanwhile.
+    fun alarm(identity: String, id: String) {
+        val a = loaded[identity]?.onAlarm ?: return
+        ask(identity, "alarm", ALARM_MS) { a.ring(id); "" }
+    }
+
+    private const val ALARM_MS = 8_000L
+
+    // Whether any extension listens to trips (Kav.onTrip): only then are trip events worked out.
+    fun listensToTrips(): Boolean = loaded.values.any { it.onTrip != null }
+
+    // A trip event (TripEvents) to each extension listening that the rider allows to follow trips, or to one alone, on a
+    // thread of Kav's.
+    fun tripEvent(event: String, only: String? = null) {
+        for (l in loaded.values) {
+            if (only != null && l.identity != only) continue
+            val listener = l.onTrip ?: continue
+            if (!TripAccess.allows(l.identity, TripAccess.FOLLOW)) continue
+            hooks.execute { NativeGuard.call(l.identity, "trip") { listener.trip(event) } }
         }
     }
 
@@ -164,7 +221,8 @@ object Native {
         val registry = hub.registry
         val dex = verifiedDex(registry.packageDir(i.identity) ?: return, i.sha256, s.dex)
         val loader = dalvik.system.InMemoryDexClassLoader(java.nio.ByteBuffer.wrap(dex), Native::class.java.classLoader)
-        val l = Loaded(i.identity, i.displayName, loader, i.sha256, i.enabledAt.takeIf { it > 0 } ?: i.installedAt)
+        val m = i.manifest
+        val l = Loaded(i.identity, m.defaultName, loader, i.sha256, i.enabledAt.takeIf { it > 0 } ?: i.installedAt, m.displayNameHe)
         synchronized(registry) {
             val current = registry.get(i.identity) ?: return
             if (current.sha256 != i.sha256 || !hub.active(current)) return
@@ -191,6 +249,10 @@ object Native {
                 loaded[i.identity] = l
             }
             if (l.actions.isNotEmpty()) Actions.notifyChanged()
+            // Listening to trips from its start: told the trip under way, if there is one.
+            if (l.onTrip != null) runCatching { TripEvents.catchUp(i.identity) }
+            // Its widgets on the home screen asked for their content now it's here.
+            if (l.widgets.isNotEmpty()) Widgets.refresh(i.identity)
             Log.i(TAG, "${i.identity}: started, ${l.cards.size} cards, ${l.screens.size} screens")
         } finally {
             synchronized(loaded) {
@@ -223,11 +285,121 @@ object Native {
         override fun context() = app
         override fun id() = i.identity
         override fun locale() = uk.noammm.kav.ui.T.lang.code
+        override fun prefs() = Extensions.prefs().toString()
+
+        // API 5: the rider's trips, each behind its own contribution and the rider's switch (TripAccess).
+        override fun trips(): String? {
+            declares("trips", TripAccess.HISTORY)
+            if (!TripAccess.allows(i.identity, TripAccess.HISTORY)) return null
+            return TripAccess.history(uk.noammm.kav.Prefs.trips(app)).toString()
+        }
+
+        override fun onTrip(listener: Kav.TripListener?) {
+            declares("onTrip", TripAccess.FOLLOW)
+            l.onTrip = listener
+            // Set after its start (from start() itself, Native tells it once started): told the trip under way at once.
+            if (listener != null && loaded[i.identity] === l) runCatching { TripEvents.catchUp(i.identity) }
+        }
+
+        // API 5: a home screen widget it declares (Widgets).
+        override fun widget(id: String, widget: Kav.Widget?) {
+            declares("widget", Widgets.CAPABILITY)
+            require(Widgets.of(i.manifest).any { it.id == id }) { "$id isn't a widget its manifest declares" }
+            if (widget == null) l.widgets.remove(id) else l.widgets[id] = widget
+            // Set after its start: its widgets show it at once.
+            if (loaded[i.identity] === l) Widgets.refresh(i.identity, id)
+        }
+
+        override fun refreshWidget(id: String) {
+            declares("refreshWidget", Widgets.CAPABILITY)
+            if (loaded[i.identity] === l) Widgets.refresh(i.identity, id)
+        }
+
+        // API 5: what Kav has of the timetable and live times (KavData), and the extension's rides in its ride history.
+        override fun stops(query: String?): String? {
+            val net = uk.noammm.kav.Loaded.net ?: return null
+            return KavData.stops(net, JSONObject(query?.ifBlank { null } ?: "{}")).toString()
+        }
+
+        override fun vehicles(query: String?): String? {
+            offMain("vehicles")
+            val q = JSONObject(query?.ifBlank { null } ?: "{}")
+            return try { KavData.vehicles(q).toString() } catch (e: java.io.IOException) { null }
+        }
+
+        override fun departures(query: String?): String? {
+            offMain("departures")
+            val net = uk.noammm.kav.Loaded.net ?: return null
+            return KavData.departures(app, net, JSONObject(query?.ifBlank { null } ?: "{}"))?.toString()
+        }
+
+        override fun addRides(rides: String) {
+            needs("addRides", null)
+            val a = org.json.JSONArray(rides)
+            val all = (0 until a.length()).map { a.getJSONObject(it) }
+            val removed = all.mapNotNull { KavData.removed(i.identity, it) }.toSet()
+            val list = all.filter { !it.optBoolean("removed") }.map { KavData.ride(i.identity, it) }
+            android.os.Handler(android.os.Looper.getMainLooper()).post { runCatching { uk.noammm.kav.TicketStore.putRides(app, list, removed) } }
+        }
+
+        // API 5: the screen's picture and its pieces' boxes (ScreenPieces), under the crash guard, while it's loaded.
+        override fun capture(captured: Kav.Captured) {
+            declares("capture", ScreenPieces.CAPABILITY)
+            uk.noammm.kav.ui.ScreenOverlay.capture(null) { picture, _, pieces ->
+                if (loaded[i.identity] !== l) { picture?.recycle(); return@capture }
+                NativeGuard.call(i.identity, "capture") { captured.captured(picture, pieces) }
+            }
+        }
+
+        // And the screen without its pieces (ScreenOverlay), the same way.
+        override fun captureBehind(captured: Kav.CapturedBehind) {
+            declares("captureBehind", ScreenPieces.CAPABILITY)
+            uk.noammm.kav.ui.ScreenOverlay.capture(null, behind = true) { picture, behind, pieces ->
+                if (loaded[i.identity] !== l) { picture?.recycle(); behind?.recycle(); return@capture }
+                NativeGuard.call(i.identity, "captureBehind") { captured.captured(picture, behind, pieces) }
+            }
+        }
+
+        // API 5: Kav's own planner (KavPlans), the trip under way changed to one of its routes, its alarms, and a file
+        // the rider picks.
+        override fun plan(query: String): String? {
+            offMain("plan")
+            return KavPlans.plan(i.identity, KavPlans.query(JSONObject(query)))?.toString()
+        }
+
+        override fun switchTrip(change: String): Boolean {
+            declares("switchTrip", TripAccess.FOLLOW)
+            if (!TripAccess.allows(i.identity, TripAccess.FOLLOW)) return false
+            return KavPlans.switchTrip(i.identity, JSONObject(change), System.currentTimeMillis() / 1000)
+        }
+
+        override fun alarm(id: String, atMillis: Long) = ExtAlarms.set(app, i.identity, id, atMillis)
+
+        override fun onAlarm(listener: Kav.Alarm?) { l.onAlarm = listener }
+
+        override fun pickFile(types: Array<String>?, picked: Kav.Picked) {
+            uk.noammm.kav.ui.ExtPicks.file(types?.toList().orEmpty().ifEmpty { listOf("*/*") }) { uri ->
+                NativeGuard.call(i.identity, "pickFile") { picked.picked(uri?.toString()) }
+            }
+        }
+
+        private fun offMain(what: String) {
+            if (android.os.Looper.myLooper() == android.os.Looper.getMainLooper()) throw IllegalStateException("$what asks the network: call it off the main thread")
+        }
+
+        private fun declares(what: String, capability: String) {
+            if (i.manifest.contributions.none { it.capability == capability })
+                throw IllegalStateException("$what needs a contribution with capability \"$capability\" in the manifest")
+        }
         override fun card(on: String, card: Kav.Card) { l.cards[on] = card }
         override fun screen(page: String, screen: Kav.Screen) { l.screens[page] = screen }
         override fun home(screen: Kav.Screen) { l.screens[PageSpecs.HOME_PAGE] = screen }
         override fun map(): kav.kavapp.api.KavMap = NativeMap.of(i.identity, l)
-        override fun provide(name: String, hook: Kav.Hook) { l.hooks[name] = hook }
+        override fun provide(name: String, hook: Kav.Hook) {
+            l.hooks[name] = hook
+            // The trip notification's buttons (TripButtons): provided again, they changed.
+            if (name == TripButtons.CAPABILITY) TripButtons.changed?.invoke()
+        }
         override fun settings(): String =
             runCatching { ExtSettings.read(hub.registry.stateDir(i.identity), PageSpecs.of(i.manifest)).toString() }.getOrDefault("{}")
         override fun onSettings(changed: Kav.SettingsChanged?) { l.onSettings = changed }
@@ -266,7 +438,9 @@ object Native {
             needs("part", Parts.CAPABILITY + name)
             require(name in Parts.NAMES) { "$name isn't one of Kav's screen parts" }
             require(where in Parts.WHERE) { "where is \"before\", \"after\" or \"replace\"" }
+            require(name != ScreenPieces.PART || where == "after") { "${ScreenPieces.PART} takes only \"after\": it is over Kav's screen, never instead of it" }
             if (card == null) l.parts.remove("$name|$where") else l.parts["$name|$where"] = card
+            Parts.changed(name)
         }
 
         override fun addTicket(ticket: String) {

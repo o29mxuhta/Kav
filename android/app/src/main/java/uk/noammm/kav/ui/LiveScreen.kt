@@ -33,6 +33,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.graphics.Color
@@ -65,6 +67,7 @@ import uk.noammm.kav.data.Transit
 import uk.noammm.kav.data.nearestStops
 import uk.noammm.kav.data.shownName
 import uk.noammm.kav.hasLocationPermission
+import uk.noammm.kav.locationAskedThisRun
 import uk.noammm.kav.loadNet
 import uk.noammm.kav.requestLocationOnce
 import uk.noammm.kav.trackLocation
@@ -102,9 +105,11 @@ internal fun liveStopsOn(zoomedOut: Boolean, linePicked: Boolean): Boolean = !zo
 private const val BOARD_STOPS = 120
 // The vehicles' list under the map, which folds away to the bar's room while a card is open.
 private val LIVE_LIST = 260.dp
-// A vehicle's or a stop's card opening or closing is one motion: the card, the map's new frame, the other vehicles' and
-// stops' fade and the list folding away all take this long, with one easing.
+// A vehicle's or a stop's card opening or closing is one motion: the card, the map's new frame, the stops' fade and the
+// list folding away all take this long, with one easing.
 private const val LIVE_MOTION_MS = 450
+// How long the rest of the vehicles take to fade as one is picked: gone before the camera's move has gone far.
+private const val OTHERS_OUT_MS = 120
 private val liveMotion = tween<Float>(LIVE_MOTION_MS, easing = FastOutSlowInEasing)
 
 internal fun liveSnapshotFresh(saved: Long, now: Long) = saved > 0 && now - saved in 0L..15L
@@ -120,7 +125,7 @@ internal fun liveAreaCurrent(fetched: Long, next: Long, now: Long) =
 internal fun liveAreaStays(fetched: Long, now: Long) = fetched > 0 && now - fetched in 0L..120L
 
 // What the Live tab showed last, so opening it again shows the buses at once while they refresh.
-private object LiveMemory {
+internal object LiveMemory {
     // Every bus around, as last asked.
     var area: KavLive.Area? = null
     var areaAt = 0L
@@ -148,6 +153,12 @@ internal fun opensNow(vehicle: Boolean, cardOpen: Boolean, ready: Boolean, inMap
 
 internal fun keptLiveVehicle(keep: Long?, chosen: Long?, last: Long?, coming: Boolean): Long? =
     keep ?: chosen ?: last.takeIf { coming }
+
+// Whether Live's map is sent the rest of the vehicles, not only the one picked (tapped or open). Stops never has them.
+// With one picked they stay until the map draws that one as itself (solid), then go; with none they're back once the
+// last one's line has gone from view (coming), by when the camera is back where it was.
+internal fun restWanted(stopsOnly: Boolean, pick: Long?, solid: Long?, coming: Boolean): Boolean =
+    !stopsOnly && if (pick != null) solid != pick else !coming
 
 // A vehicle's name on its plate: its line's number. A train's line has none: it goes by its run number, which the
 // ministry names its vehicle by (route_first_641), as the trip pages show it. Else "..." while its line is looked up, or
@@ -199,7 +210,7 @@ private fun LiveScreenForSource(model: KavModel) {
     }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(Unit) {
-        if (!locGranted && model.here == null) ask.launch(LOCATION_PERMISSIONS)
+        if (!locGranted && model.here == null && !locationAskedThisRun) ask.launch(LOCATION_PERMISSIONS)
     }
     // Where you are at once, from what the phone already knows, then every fix while the map is on screen: one fix
     // every two minutes left you where you had been as you walked or rode. A trip under way follows you already.
@@ -357,6 +368,16 @@ private fun LiveScreenForSource(model: KavModel) {
     val followed = rememberKavSpots(listOfNotNull(followedRoute))
 
     val stopsById = remember(near, farStop) { (near + listOfNotNull(farStop)).associateBy { it.id } }
+    // A vehicle or a stop opened, on the map, the list or a stop's card: an extension holding live.vehicle.open or
+    // live.stop.open is asked first.
+    fun openVehicle(v: Tracked, from: Int? = null) {
+        if (!uk.noammm.kav.ext.Actions.take(ctx, "live.vehicle.open") { liveVehicleArgs(v) }) focus = LiveFocus.Vehicle(v.tripId, from)
+    }
+    fun openStop(s: Transit.Stop) {
+        if (uk.noammm.kav.ext.Actions.take(ctx, "live.stop.open") { liveStopArgs(model.net, s, s.id) }) return
+        if (s.id !in stopsById) farStop = s
+        focus = LiveFocus.Stop(s.id)
+    }
     val vehicles = remember(area, stopBuses, stopLines, followed) {
         // Each bus where it was seen last, from the snapshot or the stops in view. Nearest first: there's no stop of
         // yours to time them at.
@@ -370,6 +391,15 @@ private fun LiveScreenForSource(model: KavModel) {
                 val from = stopsAt
                 all.map { it to metres(from.first, from.second, it.arrival.lat, it.arrival.lon) }.sortedBy { it.second }.map { it.first }
             }
+    }
+    // Kav's own opening of a vehicle or stop of those around, for an extension's Kav.kavAction.
+    SideEffect {
+        uk.noammm.kav.ext.Actions.own("live.vehicle.open") { _, a ->
+            vehicles.firstOrNull { it.arrival.vehicleId == a.optString("key") }?.let { focus = LiveFocus.Vehicle(it.tripId) }
+        }
+        uk.noammm.kav.ext.Actions.own("live.stop.open") { _, a ->
+            near.firstOrNull { liveStopArgs(model.net, it, it.id).optString("stop") == a.optString("stop") }?.let { focus = LiveFocus.Stop(it.id) }
+        }
     }
     // The roads of the nearest vehicles asked ahead from Kav's server, two at a time, so one tapped opens at once with
     // its road; each is kept for the session.
@@ -464,7 +494,13 @@ private fun LiveScreenForSource(model: KavModel) {
     // Or, from Kav's server, how the hour it's due at the stop it was opened from (else now) compares with its line's own
     // hours (KavCrowd), by the route in its vehicle id.
     val kavRoute = focusVehicle?.let { KavLive.routeOf(it.arrival.vehicleId) ?: uk.noammm.kav.data.KavPlan.routeOf(it.arrival.lineId) }
-    if (uk.noammm.kav.data.KavCrowd.enabled && kavRoute != null) LaunchedEffect(kavRoute) { uk.noammm.kav.data.KavCrowd.refresh(listOf(kavRoute)) }
+    // Asked at the tap, and the card waits for the answer as it does for the bus's details (ready): come a moment after
+    // the card, the row grew it while the camera was on its way to the frame above it.
+    var crowdIn by remember(kavRoute) { mutableStateOf(!uk.noammm.kav.data.KavCrowd.enabled || kavRoute == null) }
+    if (uk.noammm.kav.data.KavCrowd.enabled && kavRoute != null) LaunchedEffect(kavRoute) {
+        uk.noammm.kav.data.KavCrowd.refresh(listOf(kavRoute))
+        crowdIn = true
+    }
     val crowd = focusVehicle?.let { v ->
         uk.noammm.kav.data.KavCrowd.at(kavRoute, if (v.arrival.stopId == fromStop?.id) v.eta else System.currentTimeMillis() / 1000)
     } ?: crowdAt?.let { (stop, opened) ->
@@ -476,12 +512,19 @@ private fun LiveScreenForSource(model: KavModel) {
     // A vehicle tapped on the map opens once its road and stops are in and placed (0.7 s at most), so its card, the
     // map's frame and the fades start together from what they end on; another one while a card is open, or a stop, at once.
     var waited by remember(focus) { mutableStateOf(focus !is LiveFocus.Vehicle) }
-    LaunchedEffect(focus) { if (!waited) { delay(700); waited = true } }
     var open by remember { mutableStateOf(focus) }
-    val ready = route.isNotEmpty() && lineStops.isNotEmpty() && (onRoad != null || route.size < 2)
-    // The vehicle the map's vehicles are split around (the one kept, the rest going with the fade), as the map has it.
-    // It waits for the tapped one, or that one would fade out with the rest and come back at once, and the one picked
-    // last would stay until it went at once, as if it jumped to the new one.
+    // Opened by then, there's nothing left to wait for: said all the same, it made this whole screen again 700 ms after
+    // the tap, in the middle of the camera's move when the card had opened late.
+    LaunchedEffect(focus) { if (!waited) { delay(700); if (open != focus) waited = true } }
+    // Its bus's details (the Bus row, BusKind), asked for at the tap so they're in the card as it opens: come a moment
+    // later, the row grew the card after the camera had framed the bus above it, and hid it, so the camera moved again.
+    var fleetIn by remember(tripKey) { mutableStateOf(false) }
+    LaunchedEffect(tripKey) { if (tripKey.isNotEmpty()) uk.noammm.kav.data.KavFleet.ask(tripKey); fleetIn = true }
+    val ready = route.isNotEmpty() && lineStops.isNotEmpty() && (onRoad != null || route.size < 2) && fleetIn && crowdIn
+    // The vehicle the map draws alone (the one kept, the rest faded and gone from it), as the map has it. It waits for
+    // the tapped one, or that one would fade out with the rest and come back at once, and the one picked last would
+    // stay until it went at once, as if it jumped to the new one; and for the rest to be gone, so the camera's move
+    // isn't spent laying a city's vehicles out again on its way.
     var mapKept by remember { mutableStateOf<Long?>(null) }
     val inMap = (focus as? LiveFocus.Vehicle)?.tripId == mapKept
     if (open != focus && opensNow(focus is LiveFocus.Vehicle, open != null, ready, inMap, waited)) {
@@ -514,7 +557,7 @@ private fun LiveScreenForSource(model: KavModel) {
         KavPart("live.header", about, { org.json.JSONObject().put("showingInfo", about) }) {
             ScreenHeader(T("Live", "בזמן אמת")) {
                 KavIconButton(Icons.Rounded.Info, T("Where live data comes from", "מאיפה המידע בזמן אמת"), { about = !about },
-                    floating = true, tint = androidx.compose.animation.animateColorAsState(if (about) K.accentInk else K.textSecondary, tween(200), label = "aboutTint").value)
+                    floating = true, tint = androidx.compose.animation.animateColorAsState(if (about) K.accentInk else K.text, tween(200), label = "aboutTint").value)
             }
         }
         // The panel's height as it opens and closes, taken in the same layout pass as the map's (the Column measures it
@@ -548,16 +591,12 @@ private fun LiveScreenForSource(model: KavModel) {
         Text(
             when {
                 KavLive.own -> T(
-                    "Buses and times come straight from the Ministry of Transport through your server, about every 15s. " +
-                        "A vehicle shows here once one of the stops around you has a bus reporting its position.",
-                    "האוטובוסים והזמנים מגיעים ישירות ממשרד התחבורה דרך השרת שלכם, בערך כל 15 שניות. " +
-                        "כלי רכב מופיע כאן ברגע שאחת התחנות סביבכם מקבלת דיווח מיקום מאוטובוס.",
+                    "From the Ministry of Transport through your server, about every 15 seconds. A bus shows once it reports where it is.",
+                    "ממשרד התחבורה דרך השרת שלכם, בערך כל 15 שניות. אוטובוס מופיע ברגע שהוא מדווח איפה הוא.",
                 )
                 else -> T(
-                    "Buses and times come straight from the Ministry of Transport through Kav's server, about every 15s. " +
-                        "A vehicle shows here once one of the stops around you has a bus reporting its position.",
-                    "האוטובוסים והזמנים מגיעים ישירות ממשרד התחבורה דרך השרת של Kav, בערך כל 15 שניות. " +
-                        "כלי רכב מופיע כאן ברגע שאחת התחנות סביבכם מקבלת דיווח מיקום מאוטובוס.",
+                    "From the Ministry of Transport through Kav's server, about every 15 seconds. A bus shows once it reports where it is.",
+                    "ממשרד התחבורה דרך השרת של Kav, בערך כל 15 שניות. אוטובוס מופיע ברגע שהוא מדווח איפה הוא.",
                 )
             },
             style = K.type.subhead,
@@ -643,12 +682,18 @@ private fun LiveScreenForSource(model: KavModel) {
                             layout(constraints.maxWidth, constraints.maxHeight) { p.place(0, 0) }
                         }
                         .fillMaxSize().glassBackdrop(liveLiquid),
-                    onVehicle = { focus = LiveFocus.Vehicle(it.tripId) },
+                    onVehicle = { openVehicle(it) },
                     onGroup = { gathered = it.mapTo(HashSet()) { v -> v.tripId } },
-                    onStop = { s -> if (s.id !in stopsById) farStop = s; focus = LiveFocus.Stop(s.id) },
+                    onStop = { s -> openStop(s) },
                     stopRef = { s -> model.net?.code?.getOrNull(-s.id - 1)?.takeIf { it > 0 }?.let { "il.mot/gtfs/stop/$it" } },
                     status = {
-                        Column(Modifier.panel(K.rTile).padding(6.dp)) {
+                        // A capsule while it's one line; a wrapped one keeps the tile's corners. Never liquid glass: it
+                        // sits inside the map's own backdrop.
+                        var wrapped by remember { mutableStateOf(false) }
+                        Column(
+                            Modifier.onSizeChanged { wrapped = it.height > with(density) { 36.dp.roundToPx() } }
+                                .panel(if (wrapped) K.rTile else K.pill(14.dp)).padding(horizontal = K.gap3, vertical = 6.dp),
+                        ) {
                             // One message fades into the next as the chip eases to its size; a count in the same one rolls.
                             val said = when {
                                 zoomedOut && model.liveShow == LiveShow.TRAFFIC ->
@@ -684,27 +729,30 @@ private fun LiveScreenForSource(model: KavModel) {
                     Box(
                         Modifier.fillMaxWidth()
                             .padding(start = K.gap2, end = K.gap2, bottom = K.gap2)
-                            .onSizeChanged { cardHeight = with(density) { it.height.toDp() } }
                             .glassSurface(K.rCard, glass = { cardGlass.value }),
                     ) {
                         // Another stop, or a line picked on the card: the card fades to it and springs to its size;
                         // what loads into a card after that grows into it the same way.
+                        val cardKey = { f: LiveFocus? ->
+                            when (f) {
+                                is LiveFocus.Stop -> "stop ${f.id}"
+                                is LiveFocus.Vehicle -> "vehicle ${f.tripId}"
+                                else -> "none"
+                            }
+                        }
                         AnimatedContent(
                             shown,
                             transitionSpec = {
                                 (fadeIn(tween(200, delayMillis = 60)) togetherWith fadeOut(tween(120)))
                                     .using(SizeTransform(clip = false) { _, _ -> spring(dampingRatio = 1f, stiffness = 500f) })
                             },
-                            contentKey = { f ->
-                                when (f) {
-                                    is LiveFocus.Stop -> "stop ${f.id}"
-                                    is LiveFocus.Vehicle -> "vehicle ${f.tripId}"
-                                    else -> "none"
-                                }
-                            },
+                            contentKey = cardKey,
                             label = "liveCard",
                         ) { f ->
-                            Box(Modifier.animateContentSize(spring(dampingRatio = 1f, stiffness = 500f))) {
+                            // The height the card is on its way to, not the one it has at each frame of springing there:
+                            // the map frames what it shows above the card once, for where the card ends.
+                            Box(Modifier.animateContentSize(spring(dampingRatio = 1f, stiffness = 500f))
+                                .onSizeChanged { if (cardKey(f) == cardKey(shown)) cardHeight = with(density) { it.height.toDp() } }) {
                                 when (f) {
                                     is LiveFocus.Stop -> {
                                         // The ministry's arrivals at the stop, in the shape the card takes.
@@ -718,16 +766,22 @@ private fun LiveScreenForSource(model: KavModel) {
                                         val kinds = remember(b) {
                                             (b?.lines?.values.orEmpty().map { it.type } + 3).associateBy { KavLive.agencyOf(it) }
                                         }
+                                        KavPart("live.stop", f.id, { liveStopArgs(model.net, stopsById[f.id], f.id) }) {
                                         LiveStopCard(
                                             stopsById[f.id], f.id, KavLive.fresher(due, followed), dueLines, kinds, now,
-                                            onVehicle = { v -> picked = v; focus = LiveFocus.Vehicle(v.tripId, from = f.id) },
+                                            onVehicle = { v -> picked = v; openVehicle(v, from = f.id) },
                                             onClose = { focus = null },
                                         )
+                                        }
                                     }
-                                    is LiveFocus.Vehicle -> LiveVehicleCard(
-                                        focusVehicle?.takeIf { it.tripId == f.tripId }, now, lineStops, progress, reportStops, crowd,
-                                        onReport = { model.openReport(it) },
-                                    ) { focus = f.from?.let { LiveFocus.Stop(it) } }
+                                    is LiveFocus.Vehicle -> {
+                                        val v = focusVehicle?.takeIf { it.tripId == f.tripId }
+                                        KavPart("live.vehicle", f.tripId, { v?.let(::liveVehicleArgs) ?: org.json.JSONObject() }) {
+                                            LiveVehicleCard(v, now, lineStops, progress, reportStops, crowd, onReport = { model.openReport(it) }) {
+                                                focus = f.from?.let { LiveFocus.Stop(it) }
+                                            }
+                                        }
+                                    }
                                     else -> Unit
                                 }
                             }
@@ -783,15 +837,27 @@ private fun LiveScreenForSource(model: KavModel) {
                         .padding(bottom = LocalBottomBarInset.current),
                     contentAlignment = Alignment.Center,
                 ) { LoadingPulse(T("Finding vehicles", "מאתרים כלי רכב")) }
-                else -> LiveList(if (state == 2) emptyList() else listed, now, stopsAt, unreached, Modifier.fillMaxWidth()
-                    .height(LIVE_LIST + LocalBottomBarInset.current).padding(K.gap2)) {
-                    focus = LiveFocus.Vehicle(it.tripId)
+                else -> KavPart("live.list", state, { org.json.JSONObject().put("vehicles", if (state == 2) 0 else listed.size) }, inset = K.gap2) {
+                    LiveList(if (state == 2) emptyList() else listed, now, stopsAt, unreached, Modifier.fillMaxWidth()
+                        .height(LIVE_LIST + LocalBottomBarInset.current).padding(K.gap2)) { openVehicle(it) }
                 }
             }
         }
         }
     }
 }
+
+// What the Live tab's spots are told of a vehicle (live.vehicle, live.vehicle.open): its key as Kav.vehicles gives it,
+// its plate, line, mode and where it goes, where it was last and when (seconds since 1970).
+private fun liveVehicleArgs(v: Tracked): org.json.JSONObject = org.json.JSONObject().put("key", v.arrival.vehicleId)
+    .put("plate", KavLive.plateOf(v.arrival.vehicleId) ?: org.json.JSONObject.NULL).put("line", v.number)
+    .put("to", v.line?.destination?.ifBlank { null } ?: org.json.JSONObject.NULL).put("mode", v.routeType)
+    .put("lat", v.arrival.lat).put("lon", v.arrival.lon).put("at", v.arrival.sampleUtc)
+
+// And of a stop (live.stop, live.stop.open): its reference, when it is one of the timetable's, and its name.
+private fun liveStopArgs(net: uk.noammm.kav.data.Net?, s: Transit.Stop?, id: Int): org.json.JSONObject = org.json.JSONObject()
+    .put("stop", net?.code?.getOrNull(-id - 1)?.takeIf { it > 0 }?.let { "il.mot/gtfs/stop/$it" } ?: org.json.JSONObject.NULL)
+    .put("name", s?.name ?: org.json.JSONObject.NULL)
 
 // Where each stop of a line is along its road, and the road's place by it, worked out once for the road and stops.
 private class StopsOnRoute(val route: List<Pair<Double, Double>>, val stops: List<Transit.Stop>) {
@@ -864,6 +930,10 @@ private fun LiveMap(
     // Marks closer than this on screen merge, and part again past the farther (LiveGroups).
     val mergeAt = with(LocalDensity.current) { GROUP_MERGE_DP.dp.toPx().toDouble() }
     val splitAt = with(LocalDensity.current) { GROUP_SPLIT_DP.dp.toPx().toDouble() }
+    // A lone vehicle's mark under a group's (closer than their two rings' reach) goes in that group, and groups whose
+    // marks would lie on one another are one.
+    val coverAt = with(LocalDensity.current) { (GROUP_MARK_R + VEHICLE_MARK_R).dp.toPx().toDouble() }
+    val groupAt = with(LocalDensity.current) { (2 * GROUP_MARK_R).dp.toPx().toDouble() }
     val groupReach = with(LocalDensity.current) { (GROUP_MARK_R + 4f).dp.toPx() }
     // How wide a tapped group's vehicles may spread once zoomed in on it: well inside the map's box.
     val groupFit = with(LocalDensity.current) { 200.dp.toPx().toDouble() }
@@ -900,9 +970,6 @@ private fun LiveMap(
     // instead of a few frames late; the vehicles are drawn until they're gone and back from where they were.
     // Zoomed out past where stops are looked up (stopsAway), the ones on the map fade out too.
     val stopsShown = animateFloatAsState(if (show != LiveShow.TRAFFIC && !stopsAway) 1f else 0f, tween(240), label = "liveStops")
-    val othersShown = animateFloatAsState(if (show != LiveShow.STOPS) 1f else 0f, tween(240), label = "liveVehicles")
-    val othersDrawn by remember { derivedStateOf { othersShown.value > 0f } }
-    val drawnVehicles = if (othersDrawn) vehicles else shown
     val tint = focusVehicle?.let { v ->
         plateFor(v.routeType, v.line?.agencyId ?: -1)?.fill ?: v.operator()?.takeIf(::hued)?.let { onScreen(it, MapInk.light) } ?: MapInk.route
     }
@@ -918,6 +985,27 @@ private fun LiveMap(
     // changes where it starts and ends: the picked vehicle's road and stops while it's coming or there. What goes
     // stays sent, its layers not drawn while hidden, so it's there at once when it comes back.
     val coming by remember { derivedStateOf { lineShown.value > 0f } }
+    // A vehicle picked is drawn alone, as Stops draws one picked from the list. Once the map has it drawn as itself
+    // (solid: out of its group and of the rest's fade) the rest fade quickly and are sent no more, and its card opens
+    // and the camera leaves for its line only when the map has it alone (onKept); they're sent again once the camera is
+    // back and the line's view has gone (coming). Left on the map unseen, a city's vehicles were laid out again at
+    // each zoom level the camera crossed on its way there and back, which took the frames of the move, and they showed
+    // for a moment grouped for the zoom it had left.
+    val pick = keep ?: chosen
+    var solid by remember { mutableStateOf<Long?>(null) }
+    val wanted = restWanted(show == LiveShow.STOPS, pick, solid, coming)
+    // Whether the map has the rest (onLiveTaken): they fade in from then, not from when they were sent.
+    var othersTaken by remember { mutableStateOf(true) }
+    val othersShown = animateFloatAsState(if (wanted && (pick != null || othersTaken)) 1f else 0f,
+        tween(if (pick != null) OTHERS_OUT_MS else 240), label = "liveVehicles")
+    val othersBack by remember { derivedStateOf { othersShown.value >= 1f } }
+    val othersGone by remember { derivedStateOf { othersShown.value <= 0f } }
+    val alone = !wanted && othersGone
+    SideEffect { if (alone) othersTaken = false; if (pick == null) solid = null }
+    // The camera goes back to where it was as a vehicle's card closes (TileMap's away), so the rest are grouped again
+    // for the zoom they had then from that moment: the picked line's is still the last one told when they return.
+    val zoomAtPick = remember { arrayOfNulls<Float>(1) }
+    LaunchedEffect(chosen != null) { if (chosen != null) zoomAtPick[0] = mapZoom else zoomAtPick[0]?.let { mapZoom = it } }
     val extLook = uk.noammm.kav.ext.NativeMap.version.collectAsState().value
     // Every stop is drawn, none thinned out as the map zooms: Noam wants them all to stay and go together, at the zoom
     // where they're no longer looked up (stopsAway).
@@ -955,7 +1043,9 @@ private fun LiveMap(
     val density = LocalDensity.current
     val lookTrip = look?.tripId
     val second = System.currentTimeMillis() / 1000
-    val kept = keptLiveVehicle(keep, chosen, lookTrip, coming)
+    // The one that was picked stays as it is until the rest are back around it, or it would fade in again with them.
+    val kept = keptLiveVehicle(keep, chosen, lookTrip, coming || (pick == null && wanted && !othersBack))
+    val drawnVehicles = if (alone) vehicles.filter { it.tripId == kept } else vehicles
     val freshness = remember(drawnVehicles, second) {
         drawnVehicles.map { if (it.arrival.vehicleStatus == 2) Freshness.ESTIMATED else freshnessOf(it.arrival.sampleUtc, second) }
     }
@@ -980,8 +1070,15 @@ private fun LiveMap(
         // Where marks would lie on one another, one mark for them all: never the vehicle followed or opened.
         val points = ordered.associate { vehicleMarkId(it.arrival) to GroupPoint(vehicleMarkId(it.arrival), it.arrival.lat, it.arrival.lon) }
         val keep = drawnVehicles.filter { it.tripId == kept || it.tripId == chosen }.mapTo(HashSet()) { vehicleMarkId(it.arrival) }
-        val groups = mapZoom?.let { z -> groupVehicles(points.values.toList(), z.toDouble(), mergeAt, splitAt, keep, grouping.membership) }.orEmpty()
-        grouping.groups = groups; grouping.places = points; grouping.membership = groups.membership()
+        val groups = mapZoom?.let { z -> groupVehicles(points.values.toList(), z.toDouble(), mergeAt, splitAt, keep, grouping.membership, coverPx = coverAt, groupPx = groupAt, cores = grouping.cores) }.orEmpty()
+        grouping.groups = groups; grouping.places = points; grouping.membership = groups.membership(); grouping.cores = groups.cores()
+        if (android.util.Log.isLoggable("KavMap", android.util.Log.DEBUG)) mapZoom?.let { z ->
+            val k = Geo.SIZE * Math.pow(2.0, z.toDouble())
+            var closest = Double.MAX_VALUE
+            for (a in groups.indices) for (b in a + 1 until groups.size) closest = minOf(closest,
+                kotlin.math.hypot(Geo.x(groups[a].lon) - Geo.x(groups[b].lon), Geo.y(groups[a].lat) - Geo.y(groups[b].lat)) * k)
+            android.util.Log.d("KavMap", String.format(java.util.Locale.US, "groups: %d at zoom %.2f, closest two marks %.0f px (%.0f apart at least)", groups.size, z, closest, groupAt))
+        }
         val samples = ordered.associate { vehicleMarkId(it.arrival) to it.arrival.sampleUtc }
         g.copy(markers = markers, images = images).merged(groups) { group ->
             val tint = mapFreshColour(freshnessOf(group.ids.maxOf { samples[it] ?: 0L }, second))
@@ -1012,14 +1109,32 @@ private fun LiveMap(
         }
         marks to images
     }
+    val restImages = remember { arrayOf<Map<String, androidx.compose.ui.graphics.ImageBitmap>>(emptyMap()) }
     val live = remember(moving, me, selection) {
         // The rider's halo the vehicles' size here, so all the halos pulse by one plain radius (TileMap): a halo of
         // another size made the map lay every halo out again at each step of the pulse, thirty times a second. Always
         // that size, vehicles shown or not: taken from the first vehicle's, it shrank when Stops left none.
         val meHalos = me.halos.map { it.copy(radius = VEHICLE_HALO_R) }
+        // The rest's images stay named while one is drawn alone: the map lets go of images no update names, and has
+        // every tile of every source laid out again when it does, then takes each one in again as they return.
+        if (!alone) restImages[0] = moving.images
         moving.copy(halos = moving.halos + meHalos, markers = moving.markers + selection.first,
-            images = moving.images + me.images + selection.second, together = true)
+            images = (if (alone) restImages[0] else emptyMap()) + moving.images + me.images + selection.second, together = true)
             .also { grouping.byLive[it] = GroupsDrawn.Shown(grouping.groups, grouping.places, grouping.membership) }
+    }
+    // A merged mark tapped: in as far as it opens (into smaller groups or its vehicles), but never past where they all
+    // still fit on the map; a group no zoom would open is listed instead.
+    fun openGroup(group: VehicleGroup, places: Map<String, GroupPoint>) {
+        val members = group.ids.mapNotNull { places[it] }
+        val deepest = (Geo.MAX_Z + Geo.OVER).toDouble()
+        val opens = openZoom(members, (mapZoom ?: 0f).toDouble(), mergeAt, splitAt, deepest, coverAt, groupAt,
+            group.ids.zip(group.cores).toMap())
+        val z = minOf(opens ?: deepest, fitZoom(members, groupFit))
+        if ((opens != null || z < deepest) && z >= (mapZoom ?: 0f) + 0.25) {
+            zoomTo = MapZoomTo(group.lat, group.lon, z.toFloat())
+            // Grouped at once for where the camera's going, so its marks part as it zooms in, not once it has rested.
+            mapZoom = z.toFloat()
+        } else onGroup(drawnVehicles.filter { vehicleMarkId(it.arrival) in group.ids })
     }
     TileMap(
         points, modifier, focusKey = focus ?: where,
@@ -1042,21 +1157,39 @@ private fun LiveMap(
         rider = me.markers.firstOrNull(),
         riderHeading = heading,
         // Taps go by the groups the map shows: those of the geometry it has taken, not ones worked out since.
-        onLiveTaken = { g -> grouping.byLive[g]?.let { grouping.shown = it }; if (g === live) onKept(kept) },
+        onLiveTaken = { g ->
+            grouping.byLive[g]?.let { grouping.shown = it }
+            if (g === live) {
+                solid = kept
+                if (alone || kept == null) onKept(kept)
+                if (!alone) othersTaken = true
+            }
+        },
         followRider = withMe && following && focus == null,
+        // The marks drawn under the finger: the nearest that's a vehicle shown or a group (none while a vehicle's
+        // picked) is opened. Anything else (a picked stop's ring, the rider) goes on to the taps by place below.
+        onLiveMarks = marks@{ ids ->
+            for (raw in ids) {
+                val id = raw.substringBefore(':')
+                if (id.startsWith(GROUP_ID)) {
+                    if (chosen != null) continue
+                    val key = id.removePrefix(GROUP_ID)
+                    val drawn = grouping.shown
+                    drawn.groups.firstOrNull { it.key == key }?.let { openGroup(it, drawn.places); return@marks true }
+                    grouping.groups.firstOrNull { it.key == key }?.let { openGroup(it, grouping.places); return@marks true }
+                    continue
+                }
+                val vehicle = (if (chosen == null) shown else shown.filter { it.tripId == chosen }).firstOrNull { vehicleMarkId(it.arrival) == id }
+                if (vehicle != null) { onVehicle(vehicle); return@marks true }
+            }
+            false
+        },
         onTap = tap@{ at, proj ->
             // A merged mark: zoomed in about it until it splits, or its vehicles listed where none can.
             val drawn = grouping.shown
             val group = if (chosen != null) null else groupTapped(drawn.groups, at, groupReach) { la, lo -> proj.point(la, lo) }
             if (group != null) {
-                // In as far as its vehicles part, but never past where they all still fit on the map (a group merged
-                // from groups apart); a group no zoom would open any further is listed instead.
-                val members = group.ids.mapNotNull { drawn.places[it] }
-                val deepest = (Geo.MAX_Z + Geo.OVER).toDouble()
-                val split = splitZoom(members, splitAt * 1.05, deepest)
-                val z = minOf(split ?: deepest, fitZoom(members, groupFit))
-                if ((split != null || z < deepest) && z >= (mapZoom ?: 0f) + 0.5) zoomTo = MapZoomTo(group.lat, group.lon, z.toFloat())
-                else onGroup(drawnVehicles.filter { vehicleMarkId(it.arrival) in group.ids })
+                openGroup(group, drawn.places)
                 return@tap
             }
             // Not a vehicle merged into a group: its own mark isn't drawn.
@@ -1071,6 +1204,7 @@ private fun LiveMap(
                 ?.let(onStop)
         },
         keepZoom = show == LiveShow.STOPS && focusStop != null,
+        refitOnResize = false,
         extOn = "live", name = "Live",
         status = status,
         controls = controls,
@@ -1124,6 +1258,7 @@ private class GroupsDrawn {
     var groups = emptyList<VehicleGroup>()
     var places = emptyMap<String, GroupPoint>()
     var membership = emptyMap<String, String>()
+    var cores = emptyMap<String, String>()
     class Shown(val groups: List<VehicleGroup>, val places: Map<String, GroupPoint>, val membership: Map<String, String>)
     // Each live geometry's groups, and those of the one the map last took in (what it draws, and taps go by).
     val byLive = java.util.WeakHashMap<MapGeometry, Shown>()
@@ -1164,14 +1299,14 @@ private fun LiveList(
     if (vehicles.isEmpty()) {
         // Nothing near: a quiet line in the middle of the space, the why behind the (i) at the top.
         Column(
-            modifier.fillMaxWidth().padding(K.gap6),
+            modifier.fillMaxWidth().then(if (K.skin?.background != null) Modifier.background(K.surface) else Modifier).padding(K.gap6),
             horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(K.gap2),
         ) {
             LiveGlyph(K.textTertiary, 28.dp)
             ChangingText(
                 if (unreached && KavLive.feedDown) T(
-                    "The Ministry of Transport's live feed isn't working right now. Times shown are from the timetable.",
-                    "המידע בזמן אמת של משרד התחבורה לא פועל כרגע. הזמנים המוצגים הם לפי לוח הזמנים.",
+                    "The Ministry of Transport's live feed is down. Times are from the timetable.",
+                    "המידע בזמן אמת של משרד התחבורה לא פועל. הזמנים הם לפי לוח הזמנים.",
                 )
                 else if (unreached) T("Live locations can't be reached right now", "אין כרגע גישה למיקומים בזמן אמת")
                 else T("No vehicles nearby right now", "אין כרגע כלי רכב בסביבה"),
@@ -1192,7 +1327,23 @@ private fun LiveList(
         }
         shownOrder[0] = order
     }
-    LazyColumn(modifier, state = state, contentPadding = PaddingValues(
+    // The rows share one card, each drawing its own part of it: as they glide past each other to new places (one coming
+    // in from below the list the furthest), the page would show between them. The card is drawn whole behind them, from
+    // the first row to the last as laid out, so the rows move over it.
+    val surface = K.surface
+    val radius = K.rCard
+    val backed = modifier.drawBehind {
+        val info = state.layoutInfo
+        val rows = info.visibleItemsInfo
+        if (rows.isEmpty()) return@drawBehind
+        val r = radius.toPx()
+        val first = rows.first()
+        val last = rows.last()
+        val top = if (first.index == 0) (first.offset - info.viewportStartOffset).toFloat() else -r
+        val bottom = if (last.index == info.totalItemsCount - 1) (last.offset + last.size - info.viewportStartOffset).toFloat() else size.height + r
+        clipRect { drawRoundRect(surface, androidx.compose.ui.geometry.Offset(0f, top), androidx.compose.ui.geometry.Size(size.width, bottom - top), androidx.compose.ui.geometry.CornerRadius(r)) }
+    }
+    LazyColumn(backed, state = state, contentPadding = PaddingValues(
         top = K.gap1, bottom = K.gap4 + LocalBottomBarInset.current,
     )) {
         itemsIndexed(sorted, key = { _, it -> it.tripId }) { i, v ->
@@ -1222,7 +1373,7 @@ private fun LiveList(
                     Text(
                         v.line?.destination?.ifBlank { null }?.let { T("to ${shownName(it)}", "אל ${shownName(it)}") }
                             ?: if (v.pending) T("Looking up the line…", "מאתרים את הקו…") else T("Line ${v.number}", "קו ${v.number}"),
-                        style = K.type.body, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                        style = K.type.body,
                     )
                     // Where it is rolls to the new distance or time at each refresh.
                     LiveText(
@@ -1348,8 +1499,8 @@ private fun LiveVehicleCard(
         // Only once it's known where the bus is, so the rail opens on it.
         androidx.compose.animation.AnimatedVisibility(
             stops.size > 1 && progress >= 0f,
-            enter = androidx.compose.animation.expandVertically() + fadeIn(),
-            exit = androidx.compose.animation.shrinkVertically() + fadeOut(),
+            enter = androidx.compose.animation.expandVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(androidx.compose.animation.core.tween(200, delayMillis = 60)),
+            exit = androidx.compose.animation.shrinkVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(androidx.compose.animation.core.tween(120)),
         ) { BusRail(stops, progress) }
     }
 }
@@ -1380,35 +1531,38 @@ private fun BusRail(stops: List<Transit.Stop>, progress: Float) {
 }
 
 // A count that ticks once a second (a position's age): only the digits that changed roll, briefly, each its own layer
-// moved and faded in the draw phase, so a roll draws no text again and the frames between ticks do nothing. The number
-// keeps its digits left to right in Hebrew too.
+// moved and faded in the draw phase, so a roll draws no text again and the frames between ticks do nothing. Every
+// number in it rolls (the minutes and the seconds of "1m 5s"), each keeping its digits left to right in Hebrew too.
 // said: what a screen reader is told, one phrase that changes far less often than the digits roll.
 @Composable
 private fun TickText(text: String, style: androidx.compose.ui.text.TextStyle, color: Color, said: String) {
-    val number = remember(text) { Regex("\\d+").find(text) }
-    if (number == null) { Text(text, style = style, color = color, maxLines = 1); return }
-    // A digit place that comes in later (9 to 10) rolls in too; on the first look nothing rolls.
+    val parts = remember(text) { tickParts(text) }
+    // A digit place that comes in later (9 to 10, or the minutes at 1m) rolls in too; on the first look nothing rolls.
     var seen by remember { mutableStateOf(false) }
     SideEffect { seen = true }
     Row(Modifier.clearAndSetSemantics { contentDescription = said }) {
-        val before = text.substring(0, number.range.first)
-        val after = text.substring(number.range.last + 1)
-        if (before.isNotEmpty()) Text(before, style = style, color = color, maxLines = 1)
-        CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
-            Row {
-                val digits = number.value
-                // Each digit is known by its place from the right, so the ones stay the ones when the number grows.
-                digits.forEachIndexed { i, d -> key(digits.length - i) { RollingDigit(d, style, color, seen) } }
+        // Each part is known by its place from the end, so the seconds stay the seconds when the minutes come in.
+        parts.forEachIndexed { i, part ->
+            key(parts.size - i) {
+                if (!part[0].isDigit()) Text(part, style = style, color = color, maxLines = 1)
+                else CompositionLocalProvider(androidx.compose.ui.platform.LocalLayoutDirection provides androidx.compose.ui.unit.LayoutDirection.Ltr) {
+                    Row {
+                        // Each digit is known by its place from the right, so the ones stay the ones when the number grows.
+                        part.forEachIndexed { j, d -> key(part.length - j) { RollingDigit(d, style, color, seen) } }
+                    }
+                }
             }
         }
-        if (after.isNotEmpty()) Text(after, style = style, color = color, maxLines = 1)
     }
 }
 
+// A ticking text in its numbers and the words between them, in order: "1m 5s" is 1, "m ", 5 and "s".
+internal fun tickParts(text: String): List<String> = Regex("\\d+|\\D+").findAll(text).map { it.value }.toList()
+
 // How long ago a vehicle reported, as the row shows it: seconds under a minute, minutes and seconds from there
-// ("8m 55s ago", not "535s ago").
+// ("8m 55s", not "535s"). Just the time, no "ago" (Noam, 27 Nov 2026); a screen reader still says it whole (ageSaid).
 internal fun ageShown(s: Long): String =
-    if (s < 60) T("${s}s ago", "לפני $s שנ׳") else T("${s / 60}m ${s % 60}s ago", "לפני ${s / 60} דק׳ ${s % 60} שנ׳")
+    if (s < 60) T("${s}s", "$s שנ׳") else T("${s / 60}m ${s % 60}s", "${s / 60} דק׳ ${s % 60} שנ׳")
 
 // How long ago a vehicle reported, as a screen reader says it: a ticking count of seconds, said each second, would have
 // every accessibility service told of a change every second for each vehicle listed.

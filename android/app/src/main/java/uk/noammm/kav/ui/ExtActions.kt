@@ -79,7 +79,8 @@ internal fun kavActions(model: KavModel) {
     Actions.own("ticket.open") { _, a -> TicketStore.opened = a.optString("key").ifEmpty { null } }
     Actions.own("report") { _, _ -> model.reportOwn() }
     Actions.own("settings.page.open") { _, a ->
-        val page = a.optString("page")
+        // live was the Providers page, now part of Privacy.
+        val page = a.optString("page").let { if (it == "live") "privacy" else it }
         if (page in uk.noammm.kav.ext.Parts.SETTINGS_PAGES) {
             model.settingsOpen = true
             SettingsNav.wanted = page
@@ -97,6 +98,8 @@ internal fun kavActions(model: KavModel) {
         LiveShow.entries.firstOrNull { liveShowKey(it) == a.optString("show") }?.let { model.liveShow = it }
     }
     Actions.own("pay.history.open") { _, _ -> PayHistory.open = true }
+    // Until the results' screen has opened (it takes this over then): only the tab results open on, with "default".
+    Actions.own("results.planner.select") { ctx, a -> if (a.optBoolean("default")) chooseOpensOn(ctx, a.optString("source")) }
     Actions.own("pay.mode") { ctx, a -> if (a.has("on")) payModeOwn(ctx, a.optBoolean("on")) }
     Actions.own("pay.offer.hide") { ctx, _ -> PayMode.dismissOffer(ctx) }
     Actions.own("pay.place.open") { ctx, a -> RavPass.placeNamed(a.optString("place"))?.let { RavPass.place(ctx, it) } }
@@ -110,6 +113,10 @@ internal fun kavActions(model: KavModel) {
     fun keys(a: JSONObject, k: String) = a.optJSONArray(k)?.let { j -> (0 until j.length()).map { j.optString(it) }.filter { it.isNotEmpty() } }
     Actions.own("stop.save") { ctx, a -> keys(a, "stops")?.let { model.saveStopsOwn(ctx, it) } }
     Actions.own("line.save") { ctx, a -> keys(a, "lines")?.let { model.saveLinesOwn(ctx, it) } }
+    Actions.own("line.alerts.save") { ctx, a ->
+        a.optJSONArray("alerts")?.let { j -> model.saveAlertsOwn(ctx, (0 until j.length()).mapNotNull { j.optJSONObject(it)?.let(uk.noammm.kav.data.LineAlert::of) }) }
+    }
+    Actions.own("link.open") { _, _ -> uk.noammm.kav.LinkAsked.plan?.let(model::openLinkOwn) }
     Actions.own("tab.open") { _, a -> uk.noammm.kav.Tab.entries.firstOrNull { it.name.equals(a.optString("tab"), true) }?.let { model.openTab(it) } }
     Actions.own("pay") { ctx, a ->
         val s = RavPass.Section.entries.firstOrNull { RavPass.key(it) == a.optString("section", "bus") } ?: RavPass.Section.BUS

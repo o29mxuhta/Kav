@@ -7,7 +7,6 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.SignalCellularAlt
 import androidx.compose.material.icons.rounded.SystemUpdate
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
@@ -19,11 +18,10 @@ import uk.noammm.kav.Checks
 import uk.noammm.kav.Prefs
 import uk.noammm.kav.data.Updates
 
-// Kav downloading new versions by itself, to install when the rider says so (AutoUpdate): Settings' switch, and a step of
-// setup that spells it out (explained). On unless turned off; it sends nothing about the rider, as the background check
-// (Checks) only downloads.
+// Kav downloading new versions by itself, to install when the rider says so (AutoUpdate): Settings' switch. On unless
+// turned off; it sends nothing about the rider, as the background check (Checks) only downloads.
 @Composable
-internal fun AutomaticUpdates(explained: Boolean = false) {
+internal fun AutomaticUpdates() {
     val ctx = LocalContext.current
     var auto by remember { mutableStateOf(Prefs.autoUpdate(ctx)) }
     var mobile by remember { mutableStateOf(Prefs.updatesOnMobile(ctx)) }
@@ -31,29 +29,19 @@ internal fun AutomaticUpdates(explained: Boolean = false) {
     var mayInstall by remember { mutableStateOf(Updates.canInstall(ctx)) }
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     LaunchedEffect(lifecycle) { lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) { mayInstall = Updates.canInstall(ctx) } }
-    val title = T("Automatic updates", "עדכונים אוטומטיים")
     val info = T(
-        "Each time you open Kav, it asks GitHub whether there's a new version and offers it right away. Once a day in " +
-            "the background it also downloads it, on Wi-Fi (or mobile data, if you allow it), and makes sure it's signed with Kav's own key. Nothing " +
-            "installs by itself: Kav asks, Install now or Later. Install now closes Kav to " +
-            "update it, and Android or Google Play Protect may ask you to confirm. Kav sends nothing about you: GitHub " +
-            "sees your IP address and the time, as for any download. While this is on, Tell me about new versions doesn't apply.",
-        "בכל פעם שתפתחו את Kav היא שואלת את GitHub אם יש גרסה חדשה ומציעה אותה מיד. פעם ביום ברקע היא גם " +
-            "מורידה אותה, ב-Wi-Fi (או בנתונים סלולריים, אם תאפשרו), ומוודאת שהיא חתומה במפתח של Kav. שום דבר לא מותקן מעצמו: " +
-            "Kav תשאל, להתקין עכשיו או אחר כך. התקנה סוגרת את Kav כדי לעדכן אותה, ו-Android או " +
-            "Google Play Protect עשויים לבקש מכם לאשר. Kav לא שולחת שום דבר עליכם: GitHub רואה את כתובת ה-IP " +
-            "שלכם ואת השעה, כמו בכל הורדה. כשזה פועל, עדכנו אותי על גרסאות חדשות לא חל.",
+        "Kav asks GitHub when it opens and downloads a new version in the background. Nothing installs until you say so. GitHub sees your IP address.",
+        "Kav שואלת את GitHub כשהיא נפתחת ומורידה גרסה חדשה ברקע. שום דבר לא מותקן בלי אישור שלכם. GitHub רואה את כתובת ה-IP שלכם.",
     )
     Column(Modifier.fillMaxWidth()) {
-        if (explained) {
-            SectionHeader(title)
-            NoteCard(info, Modifier.padding(bottom = K.gap2))
-        } else InfoHeader(title, info)
-        ListGroup(Modifier.animateContentSize(spring(dampingRatio = 1f, stiffness = 500f))) {
+        // The rows are a card of their own under the update's, and the switch carries the (i).
+        ListGroup(Modifier.padding(top = K.gap3).animateContentSize(spring(dampingRatio = 1f, stiffness = 500f))) {
+            row { UpdatePromptsRow() }
             row {
                 ToggleRow(
-                    T("Download updates automatically", "להוריד עדכונים אוטומטית"), auto,
+                    T("Automatic updates", "עדכונים אוטומטיים"), auto,
                     { Icon(Icons.Rounded.SystemUpdate, null, tint = toggleInk(auto), modifier = Modifier.size(22.dp)) },
+                    info = info,
                 ) { on ->
                     auto = on
                     Prefs.setAutoUpdate(ctx, on)
@@ -64,7 +52,7 @@ internal fun AutomaticUpdates(explained: Boolean = false) {
                 ToggleRow(
                     T("Also on mobile data", "גם בנתונים סלולריים"), mobile,
                     { Icon(Icons.Rounded.SignalCellularAlt, null, tint = toggleInk(mobile), modifier = Modifier.size(22.dp)) },
-                    subtitle = T("About 32 MB a version", "בערך 32MB לגרסה"),
+                    subtitle = T("About 32 MB a version", "בערך ${megabytes(32)} לגרסה"),
                 ) { on ->
                     mobile = on
                     Prefs.setUpdatesOnMobile(ctx, on)
@@ -72,27 +60,11 @@ internal fun AutomaticUpdates(explained: Boolean = false) {
             }
             if (auto && !mayInstall) row {
                 ListRow(
-                    T("Let Kav install updates", "לאפשר ל-Kav להתקין עדכונים"),
+                    T("Let Kav install updates", "הרשאה להתקין עדכונים"),
                     subtitle = T("Android asks this once", "Android שואלת את זה פעם אחת"),
                     onClick = { Updates.askInstallPermission(ctx) },
                 )
             }
         }
     }
-}
-
-// The setup step: what it does, that nothing about the rider is sent, and its switch, on.
-@Composable
-internal fun AutomaticUpdatesStep() {
-    Text(T("Automatic updates", "עדכונים אוטומטיים"), style = K.type.largeTitle)
-    Text(
-        T(
-            "On: Kav downloads a new version on Wi-Fi and checks it's signed with Kav's own key. Nothing installs until " +
-                "you tap Install now. Settings has this again later.",
-            "פועל: Kav מורידה גרסה חדשה ב-Wi-Fi ובודקת שהיא חתומה במפתח של Kav. שום דבר לא מותקן עד שתקישו " +
-                "להתקין עכשיו. אפשר לשנות את זה שוב בהגדרות.",
-        ),
-        style = K.type.subhead, modifier = Modifier.padding(top = K.gap2),
-    )
-    Column(Modifier.fillMaxWidth().padding(horizontal = K.gap3)) { AutomaticUpdates(explained = true) }
 }

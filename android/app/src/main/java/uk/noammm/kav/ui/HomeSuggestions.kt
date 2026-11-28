@@ -45,6 +45,7 @@ import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
@@ -211,8 +212,9 @@ private fun SuggestionsCard(model: KavModel, latest: ActiveJourney?, onLatest: (
                         when (now.near) {
                             Near.ASK -> Column(Modifier.fillMaxWidth().padding(start = K.gap4, end = K.gap4, bottom = K.gap4),
                                 verticalArrangement = Arrangement.spacedBy(K.gap3)) {
-                                Text(T("Your location is used on the phone to find nearby stops.",
-                                    "המיקום משמש בטלפון למציאת תחנות קרובות."), style = K.type.subhead, color = K.textSecondary)
+                                // The station is found on the phone; its live times are Kav's server's, asked by its stops.
+                                Text(T("To show the station nearest you, with its live times.",
+                                    "כדי להראות את התחנה הקרובה אליכם, עם הזמנים שלה בזמן אמת."), style = K.type.subhead, color = K.textSecondary)
                                 KavButton(T("Use my location", "השתמשו במיקום שלי"), {
                                     if (hasLocationPermission(ctx)) locate() else permission.launch(LOCATION_PERMISSIONS)
                                 }, Modifier.fillMaxWidth(), busy = locating)
@@ -229,7 +231,10 @@ private fun SuggestionsCard(model: KavModel, latest: ActiveJourney?, onLatest: (
                                 if (shownNet != null && station != null) {
                                     // Another station, as after a move, fades in over the last.
                                     AnimatedContent(station, contentKey = { it.stop }, transitionSpec = { swap() }, label = "station") {
-                                        NearestStation(shownNet, it, now.found?.lines, page == pager.settledPage) { stop -> model.openStation(stop) }
+                                        // The nearest station is a part (home.nearest), told the stop and how far it is.
+                                        KavPart("home.nearest", it.stop, { stopArgs(shownNet, it.stop).put("metres", Math.round(it.metres)) }) {
+                                            NearestStation(shownNet, it, now.found?.lines, page == pager.settledPage) { stop -> model.openStation(stop) }
+                                        }
                                     }
                                 }
                             }
@@ -375,7 +380,7 @@ private fun RouteLine(route: ActiveJourney) {
     val r = route.resolved
     val steps = remember(route.trip) { routeSteps(route.trip) }
     val said = remember(steps, T.lang) {
-        T("from ${route.fromLabel}: ", "מ־${route.fromLabel}: ") + steps.joinToString(", ") { stepSaid(it, r) }
+        T("from ${placeLabel(route.fromLabel)}: ", "מ־${placeLabel(route.fromLabel)}: ") + steps.joinToString(", ") { stepSaid(it, r) }
     }
     val shown = steps
     val middle = textMiddle(K.type.subhead)
@@ -607,7 +612,7 @@ private fun LineRow(net: Net, line: StationLine, plate: Dp, tall: Dp, timeColumn
     ) {
         LineBadge(net, line.route, Modifier.widthIn(min = plate).height(tall), label = line.number, type = line.type,
             agency = line.agency, dense = true)
-        Text(T("to ${line.to}", "אל ${line.to}"), style = K.type.body, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text(T("to ${line.to}", "אל ${line.to}"), style = K.type.body)
         // Every time has a mark before its column, at one place in every row: the board's live mark when it's live, the
         // signal struck through, grey, when it isn't; one fades into the other as a line's live state changes. The time
         // starts just after its mark, "now" as "12 min" does, in the board's colour; the column ends level with the
@@ -630,7 +635,7 @@ private fun LineRow(net: Net, line: StationLine, plate: Dp, tall: Dp, timeColumn
 
 // A line row's plate, words and time on the plate's baseline, the row as tall as the plate: words in a script set
 // taller (Hebrew's are) reach into the row's padding rather than grow the row. The words take the room the plate and
-// the time leave.
+// the time leave, and a destination too long for it wraps, the row growing by the lines it adds.
 @Composable
 private fun OnPlate(gap: Dp, modifier: Modifier, content: @Composable () -> Unit) {
     Layout(content, modifier) { measurables, constraints ->
@@ -639,12 +644,13 @@ private fun OnPlate(gap: Dp, modifier: Modifier, content: @Composable () -> Unit
         val time = measurables[2].measure(constraints.copy(minWidth = 0, minHeight = 0))
         val room = (constraints.maxWidth - plate.width - time.width - 2 * space).coerceAtLeast(0)
         val words = measurables[1].measure(constraints.copy(minWidth = room, maxWidth = room, minHeight = 0))
+        val added = (words.height - measurables[1].minIntrinsicHeight(Constraints.Infinity)).coerceAtLeast(0)
         val base = plate[FirstBaseline]
         fun top(p: Placeable): Int {
             val b = p[FirstBaseline]
             return if (base == AlignmentLine.Unspecified || b == AlignmentLine.Unspecified) (plate.height - p.height) / 2 else base - b
         }
-        layout(constraints.maxWidth, plate.height) {
+        layout(constraints.maxWidth, plate.height + added) {
             plate.placeRelative(0, 0)
             words.placeRelative(plate.width + space, top(words))
             time.placeRelative(constraints.maxWidth - time.width, top(time))

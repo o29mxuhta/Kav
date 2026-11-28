@@ -11,7 +11,7 @@ import kav.kavapp.api.Kav
 // The four cards of API 3 (Kav.card, Slots) sit where they always did, each beside one of these: "home" after
 // home.suggestions, "trip" after trip.timeline, "stop" at the top of stop.board, "results" inside results.route's card.
 object Parts {
-    val SETTINGS_PAGES = listOf("trips", "paying", "live", "look", "map", "privacy", "extensions", "kav")
+    val SETTINGS_PAGES = listOf("trips", "paying", "live", "look", "language", "map", "privacy", "extensions", "kav")
 
     // Every part, with what it is told (docs/native.md lists each with its JSON and where Kav draws it).
     val NAMES = listOf(
@@ -29,11 +29,21 @@ object Parts {
         "ticket.header", "ticket.validity", "ticket.ride",
         "pay.history.header", "pay.history.summary", "pay.history.empty", "pay.history.month", "pay.history.ride",
         "nav.header", "nav.problem", "nav.card", "share.targets", "ticket.codes", "pay.setup",
+        "nav.wait.details", "nav.ride.details", "nav.banner", "ride.pay",
+        "stops.row", "stop.departure", "stop.alerts", "lines.row", "line.live", "line.map", "line.stop",
+        "live.list", "live.vehicle", "live.stop", "home.nearest", "results.empty", "results.hidden", "alert.sheet",
+        "report.step", "search.result", ScreenPieces.PART,
     ) + SETTINGS_PAGES.map { "settings.page.$it" }
 
     const val CAPABILITY = "part."
     val CAPABILITIES get() = NAMES.map { CAPABILITY + it }
     val WHERE = listOf("before", "after", "replace")
+
+    // An extension calling Kav.part again for a part (its content changed): the part's views are made again wherever it
+    // shows. Counted by name, read by ui/ExtParts.kt.
+    private val remakes = androidx.compose.runtime.mutableStateMapOf<String, Int>()
+    fun remade(name: String) = remakes[name] ?: 0
+    fun changed(name: String) { remakes[name] = remade(name) + 1 }
 
     data class Piece(val identity: String, val onAt: Long, val where: String, val card: Kav.Card)
 

@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -81,7 +82,6 @@ internal fun lineAlert(r: Transit.Resolved, ride: Transit.Leg?, wait: Transit.Le
 // about; a list of trips passes none.
 @Composable
 internal fun FreshAlerts(rides: List<Pair<Transit.Leg, Transit.Resolved>> = emptyList()) {
-    if (!RideAlerts.enabled) return
     val shown by androidx.compose.runtime.rememberUpdatedState(rides)
     LaunchedEffect(T.rtl, RideAlerts.source, RideAlerts.language) {
         // Once the screen has come in, so the first ask doesn't share its opening's frames.
@@ -191,7 +191,8 @@ internal fun CrowdLevel(crowd: uk.noammm.kav.data.GoogleCrowd.Crowd) {
                     },
             )
         }
-        androidx.compose.animation.Crossfade(words, animationSpec = tween(220), label = "crowdWords") { w ->
+        // While it's asked, the bars' wave says so; the words come with the answer.
+        androidx.compose.animation.Crossfade(if (asking) "" else words, animationSpec = tween(220), label = "crowdWords") { w ->
             Text(w, style = K.type.subhead, color = if (crowd == uk.noammm.kav.data.GoogleCrowd.Crowd.Failed) K.textTertiary else K.dim,
                 modifier = Modifier.padding(start = K.gap1))
         }
@@ -201,8 +202,9 @@ internal fun CrowdLevel(crowd: uk.noammm.kav.data.GoogleCrowd.Crowd) {
 // Timetables and departures are in Israel's time, whatever zone the phone is set to.
 val ISRAEL: TimeZone = TimeZone.getTimeZone("Asia/Jerusalem")
 
-// Times read "14:05", or "2:05 PM" for anyone who asked for AM/PM.
-val CLOCK get() = if (Shown.twelveHour) "h:mm a" else "HH:mm"
+// Times read "14:05", or "2:05 PM" for anyone who asked for AM/PM, kept left to right as one piece inside Hebrew, where
+// it would otherwise read "PM 2:05".
+val CLOCK get() = if (!Shown.twelveHour) "HH:mm" else if (T.rtl) "'\u2066'h:mm a'\u2069'" else "h:mm a"
 
 // One per thread (a SimpleDateFormat isn't safe across them), made again only when the clock's style changes: screens
 // ask for it for each time they show.
@@ -214,7 +216,7 @@ fun clockFormat(): java.text.SimpleDateFormat = clocks.get()?.takeIf { it.toPatt
 fun hhmm(s: Int): String {
     val h = (s / 3600) % 24; val m = (s / 60) % 60
     return if (!Shown.twelveHour) "%02d:%02d".format(Locale.US, h, m)
-    else "%d:%02d %s".format(Locale.US, (h + 11) % 12 + 1, m, if (h < 12) "AM" else "PM")
+    else T.ltr("%d:%02d %s".format(Locale.US, (h + 11) % 12 + 1, m, if (h < 12) "AM" else "PM"))
 }
 
 // A length of time, written one way everywhere: "55 min", "1 hr 8 min", "2 hr".
@@ -255,8 +257,11 @@ fun metres(la1: Double, lo1: Double, la2: Double, lo2: Double): Double {
 }
 
 fun distanceLabel(m: Double): String =
-    if (m < 1000) T("${m.roundToInt()} m", "${m.roundToInt()} מ'")
-    else T("%.1f km", "%.1f ק\"מ").format(Locale.US, m / 1000)
+    if (m < 1000) T("${m.roundToInt()} m", "${m.roundToInt()} מ׳")
+    else T("%.1f km", "%.1f ק״מ").format(Locale.US, m / 1000)
+
+// A size in megabytes, "176 MB", kept left to right inside Hebrew, where it would otherwise read "MB 176".
+fun megabytes(mb: Long): String = T.ltr("$mb MB")
 
 enum class Mode { TRAM, SUBWAY, TRAIN, BUS, FERRY, CABLE, GONDOLA, FUNICULAR, TAXI, OTHER }
 
@@ -321,7 +326,8 @@ fun WalkGlyph(tint: Color = K.dim, size: androidx.compose.ui.unit.Dp = 13.dp) {
     Canvas(Modifier.size(size)) { drawWalker(tint) }
 }
 
-fun DrawScope.drawWalker(tint: Color) {
+// The walker faces the way a trip reads: to the end side, so left in a right-to-left layout.
+fun DrawScope.drawWalker(tint: Color) = mirrorInRtl {
     val w = size.width; val h = size.height
     val sw = w * 0.11f
     fun line(x1: Float, y1: Float, x2: Float, y2: Float) =
@@ -332,6 +338,11 @@ fun DrawScope.drawWalker(tint: Color) {
     line(.48f, .56f, .66f, .84f)
     line(.52f, .36f, .72f, .46f)
 }
+
+// A drawing that shows a direction, drawn facing the end side: as it is in a left-to-right layout, mirrored in a
+// right-to-left one.
+inline fun DrawScope.mirrorInRtl(crossinline block: DrawScope.() -> Unit) =
+    scale(if (layoutDirection == LayoutDirection.Rtl) -1f else 1f, 1f) { block() }
 
 // label: a train's number, which the timetable doesn't keep, where a live source has given it. type: the mode of a
 // line the timetable hasn't, as the live source has it, and agency its operator, by the ministry's id, or operator, by
@@ -483,10 +494,8 @@ fun PreciseLocationNudge() {
             Text(T("Your location is not accurate", "המיקום שלכם אינו מדויק"), style = K.type.headline)
             Text(
                 T(
-                    "Turn on ‘Use precise location’. Without it Android rounds your position " +
-                        "to about a kilometer, which can plan your trip from the wrong town.",
-                    "הפעילו את ‘השתמשו במיקום מדויק’. בלעדיו אנדרואיד מעגל את המיקום שלכם " +
-                        "לכדי קילומטר בערך, מה שעלול לתכנן את הנסיעה מהעיר הלא נכונה.",
+                    "Turn on Use precise location, or trips may start from the wrong place.",
+                    "הפעילו את האפשרות מיקום מדויק, אחרת מסלולים עלולים להתחיל ממקום לא נכון.",
                 ),
                 style = K.type.subhead, modifier = Modifier.padding(top = 2.dp),
             )
@@ -599,7 +608,10 @@ fun ServiceAlertSheet(alert: RideAlerts.Alert, onDismiss: () -> Unit) {
         // A stop or a line in the notice opens on its tab, the sheet closing first.
         val openStop: (Int) -> Unit = { code -> close { onDismiss(); uk.noammm.kav.AlertLink.alert = alert; uk.noammm.kav.AlertLink.stop = code } }
         val openLine: (String) -> Unit = { number -> close { onDismiss(); uk.noammm.kav.AlertLink.alert = alert; uk.noammm.kav.AlertLink.line = number } }
-        SheetHeader(alert.label.ifBlank { T("Service alert", "הודעת שירות") }, { close(onDismiss) })
+        val heading = alert.label.ifBlank { T("Service alert", "הודעת שירות") }
+        SheetHeader(heading, { close(onDismiss) })
+        // The notices under the heading are a part (alert.sheet), told the alert as alert.open is.
+        KavPart("alert.sheet", alert, { org.json.JSONObject().put("label", alert.label).put("ids", org.json.JSONArray(alert.ids)) }) {
         Column(Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState())) {
             val list = notices
             when {
@@ -625,7 +637,8 @@ fun ServiceAlertSheet(alert: RideAlerts.Alert, onDismiss: () -> Unit) {
                     val hebrew = HEBREW.findAll(a.title + a.body).count() > LATIN.findAll(a.title + a.body).count()
                     val notice = if (hebrew) LayoutDirection.Rtl else LocalLayoutDirection.current
                     CompositionLocalProvider(LocalLayoutDirection provides notice) {
-                        a.title.takeIf { it.isNotBlank() }?.let {
+                        // A notice titled as the sheet is isn't titled twice, nor by the dates its window already says.
+                        noticeTitle(a.title, heading)?.let {
                             Text(it, style = K.type.headline, modifier = Modifier.fillMaxWidth())
                             Spacer(Modifier.height(K.gap2))
                         }
@@ -644,6 +657,7 @@ fun ServiceAlertSheet(alert: RideAlerts.Alert, onDismiss: () -> Unit) {
                     }
                 }
             }
+        }
         }
     }
 }
@@ -763,7 +777,7 @@ private fun LinkedText(text: String, openLine: (String) -> Unit) {
 
 // A line number with its Hebrew letter, a geresh after it or not: "17ב'", "6ב".
 private val HEBREW_LINE = Regex("""(?<![\d\u2066])\d{1,3}[א-ת]['׳]?(?![א-ת])""")
-private val LINE_WORD = Regex("""(?i)\blines?\b|(?<![א-ת])[לבהומש]{0,2}(?:קו|קוו?ים|קווי|קוי)(?![א-ת])""")
+private val LINE_WORD = Regex("""(?i)\b(?:lines?|routes)\b|(?<![א-ת])[לבהומש]{0,2}(?:קו|קוו?ים|קווי|קוי)(?![א-ת])""")
 // A line number, not a time or a date ("8:00", "8.11"), its letter with a geresh or not ("17ב'").
 private val LINE_IN_TEXT = Regex("""\d{1,3}(?:[א-תA-Za-z]['׳]?)?(?![א-תA-Za-z\d]|[:.]\d)""")
 // The en dash operators type in notices, as a code so the source holds none.
@@ -797,6 +811,23 @@ internal fun lineMentions(text: String): List<Pair<IntRange, String>> {
         }
     }
     return out.sortedBy { it.first.first }
+}
+
+// A date in a notice's title, a day and month with its year or not: "29.11.2026", "3/12", "29.11.26".
+private val TITLE_DATE = Regex("""(?<![\d.])\d{1,2}[./]\d{1,2}(?:[./](?:\d{4}|\d{2}))?(?![\d])""")
+// Two dates a span joins ("29.11 - 3.12", "29.11.2026 עד 3.12.2026"), each already a mark (\u0000).
+private val TITLE_SPAN = Regex("""\u0000\s*(?:[-${DASH}]|ועד|עד|to|until)\s*\u0000""", RegexOption.IGNORE_CASE)
+// A date's mark with the word that leads it: "from", "מ-", "בתאריך".
+private val TITLE_DATE_WORD = Regex("""(?:(?i:\b(?:from|on|until)\s+)|(?<![א-ת])(?:מיום|ביום|בתאריך|החל\s+מ-?|עד|מ-?|ב-?)\s*)?\u0000""")
+private const val TITLE_EDGES = " \t-,:|()\u2013"
+
+// A notice's title without its dates, which its window under it already says; null when nothing else is left, or
+// what is left is the sheet's own heading.
+internal fun noticeTitle(title: String, heading: String): String? {
+    var t = TITLE_DATE.replace(title, "\u0000")
+    while (TITLE_SPAN.containsMatchIn(t)) t = TITLE_SPAN.replace(t, "\u0000")
+    t = TITLE_DATE_WORD.replace(t, "").replace(Regex("""\s{2,}"""), " ").trim { it in TITLE_EDGES }
+    return t.takeIf { it.isNotBlank() && !it.equals(heading.trim(), ignoreCase = true) }
 }
 
 // A run of an alert's text, a list of line numbers in it, or a list of stops by their codes ("20779 - יוחנן הסנדלר").
@@ -923,7 +954,7 @@ fun BottomSheet(
                     .animateEnterExit(
                         enter = androidx.compose.animation.slideInVertically(
                             androidx.compose.animation.core.spring(
-                                dampingRatio = 0.9f,
+                                dampingRatio = 1f,
                                 stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
                             ),
                         ) { it },
@@ -956,7 +987,7 @@ fun BottomSheet(
                 Column(
                     Modifier.then(if (scrolls) Modifier.verticalScroll(rememberScrollState()) else Modifier)
                         .padding(start = K.gap4, end = K.gap4, bottom = K.gap4)
-                        .animateContentSize(),
+                        .animateContentSize(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)),
                 ) { content(close) }
             }
         }
