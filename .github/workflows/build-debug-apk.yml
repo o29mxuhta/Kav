@@ -3,6 +3,9 @@ name: Build debug APK
 on:
   workflow_dispatch:
 
+permissions:
+  contents: write
+
 jobs:
   build:
     runs-on: ubuntu-latest
@@ -16,11 +19,26 @@ jobs:
 
       - uses: gradle/actions/setup-gradle@v4
 
+      - name: Fixed signing key (so builds update over each other)
+        env:
+          KS: ${{ secrets.DEBUG_KEYSTORE_B64 }}
+        run: |
+          test -n "$KS"
+          echo "$KS" | base64 -d > "$RUNNER_TEMP/debug.keystore"
+
       - name: Assemble debug APK
         working-directory: android
-        run: ./gradlew :app:assembleDebug --console=plain
+        env:
+          KAV_DEBUG_KEYSTORE: ${{ runner.temp }}/debug.keystore
+        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.2.1-fork.1 --console=plain
 
       - uses: actions/upload-artifact@v4
         with:
           name: kav-debug-apk
           path: android/app/build/outputs/apk/debug/app-debug.apk
+      - name: Publish keyless pre-release (#108)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
+          gh release create v5.2.1-fork.1 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.2.1-fork.1" --notes "Fork build of Kav 5.2.1 (Noam's code, synced). Nothing of the fork's own features is added on top. Installs over the previous fork build."
