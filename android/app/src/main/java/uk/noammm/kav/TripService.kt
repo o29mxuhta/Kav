@@ -240,8 +240,14 @@ class TripService : Service() {
         val now = System.currentTimeMillis() / 1000
         // An alert whose step is over leaves the shade: the bus boarded or gone, the ride got off, the walk done.
         shownAlert()?.let { shown -> if (!alertStillDue(shown, journey, step, now)) NotificationManagerCompat.from(this).cancel(ALERT_ID) }
+        // The leave alert leaves the shade once the walk is on its way past the first stop, or the bus has gone.
+        if (lastAlert.startsWith("leave-") && !leaveStillDue(journey, step, now)) {
+            NotificationManagerCompat.from(this).cancel(ALERT_ID)
+            lastAlert = ""
+        }
         val due = listOfNotNull(
             replanAlert(journey, step, latest, now),
+            leaveAlert(journey, step, latest, now, fired),
             tripAlert(journey, step, latest, now),
             transferAlert(journey, step, TicketStore.kept, now * 1000),
         ).firstOrNull { it.key !in fired } ?: return

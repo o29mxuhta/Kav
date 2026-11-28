@@ -41,6 +41,7 @@ import uk.noammm.kav.ui.walkTo
 import uk.noammm.kav.ui.busOn
 import uk.noammm.kav.ui.minsLeft
 import uk.noammm.kav.ui.minutesToAlight
+import uk.noammm.kav.ui.leaveTime
 import uk.noammm.kav.ui.leavesNow
 import uk.noammm.kav.ui.platformChange
 import uk.noammm.kav.ui.rideTimes
@@ -197,15 +198,19 @@ internal fun tripNotice(journey: ActiveJourney, current: Int, fix: Fix?, now: Lo
 
     val say = when (val step = steps[index]) {
         // "Now" while leaving now still makes the first ride, as the card says it (leavesNow()), not a time just gone.
-        is Step.Start -> if (leavesNow(journey.trip, now)) Say(
-            T("Leave now", "יציאה עכשיו"),
-            T("Start from ${placeLabel(step.label)}", "התחלה מ${placeLabel(step.label)}"),
-            T("now", "עכשיו"), Glyph(null), accent,
-        ) else Say(
-            T("Leave at ${time(step.time)}", "יציאה ב-${time(step.time)}"),
-            T("Start from ${placeLabel(step.label)}", "התחלה מ${placeLabel(step.label)}"),
-            time(step.time), Glyph(null), accent,
-        )
+        is Step.Start -> {
+            val leave = leaveTime(journey.trip, journey.resolved, journey.chosen, now)
+            val at = leave?.at ?: step.time
+            if (leave?.now ?: leavesNow(journey.trip, now)) Say(
+                T("Leave now", "יציאה עכשיו"),
+                T("Start from ${placeLabel(step.label)}", "התחלה מ${placeLabel(step.label)}"),
+                T("now", "עכשיו"), Glyph(null), accent,
+            ) else Say(
+                T("Leave at ${time(at)}", "יציאה ב-${time(at)}"),
+                T("Start from ${placeLabel(step.label)}", "התחלה מ${placeLabel(step.label)}"),
+                time(at), Glyph(null), accent,
+            )
+        }
         is Step.Walk -> {
             val next = (steps.drop(index + 1).firstOrNull { it is Step.Wait } as? Step.Wait)
                 ?.takeIf { step.toRide != null }?.let { pick(it.ride, it.wait, it.legIndex).first }
