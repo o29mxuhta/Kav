@@ -30,7 +30,7 @@ jobs:
         working-directory: android
         env:
           KAV_DEBUG_KEYSTORE: ${{ runner.temp }}/debug.keystore
-        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.2.3-fork.1 --console=plain
+        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.2.3-fork.2 --console=plain
 
       - uses: actions/upload-artifact@v4
         with:
@@ -41,4 +41,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
-          gh release create v5.2.3-fork.1 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.2.3-fork.1" --notes "Fork build of Kav 5.2.3 (Noam's code) plus our leave-now timing and alert (#117, #127). The early-transfer guards (#126, #134) are not added: Noam's 5.2.1 already has its own. Installs over the previous fork build (same package and key)."
+          gh release create v5.2.3-fork.2 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.2.3-fork.2" --notes "Fork build of Kav 5.2.3 (Noam's code) plus our leave-now timing and alert and a Home look switch (old or new, in Settings > Look) (#117, #127). The early-transfer guards (#126, #134) are not added: Noam's 5.2.1 already has its own. Installs over the previous fork build (same package and key)."
