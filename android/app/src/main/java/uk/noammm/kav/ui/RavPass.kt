@@ -10,6 +10,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.core.graphics.drawable.toBitmap
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Download
@@ -629,7 +631,13 @@ private fun PayAppRow() {
                     close { open = false }
                 }, chevron = false)
         }
+        // Zuzu's own launcher icon, read from the installed app (no logo is bundled in Kav); a wallet when it isn't installed.
+        val zuzuIcon = remember { runCatching { ctx.packageManager.getApplicationIcon("il.idf.zuzu").toBitmap(96, 96).asImageBitmap() }.getOrNull() }
         ListRow(T("Zuzu", "זוזו"),
+            leading = {
+                if (zuzuIcon != null) androidx.compose.foundation.Image(zuzuIcon, contentDescription = null, modifier = Modifier.size(22.dp))
+                else Icon(Icons.Rounded.Wallet, contentDescription = null, tint = K.textSecondary, modifier = Modifier.size(22.dp))
+            },
             trailing = { androidx.compose.material3.RadioButton(PayMode.zuzuOn, onClick = null) },
             onClick = {
                 Prefs.setZuzu(ctx, true)
