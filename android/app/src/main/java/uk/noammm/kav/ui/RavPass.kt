@@ -157,6 +157,7 @@ internal object RavPass {
     // or {} for none ({"section"} for another section than the bus's); then Kav's own.
     fun open(ctx: Context, s: Section, ride: PayFor? = null) {
         if (uk.noammm.kav.ext.Actions.take(ctx, "pay") { args(s, ride) }) return
+        if (Prefs.zuzu(ctx)) { Zuzu.open(ctx); return }
         own(ctx, s, ride)
     }
 
@@ -419,7 +420,7 @@ internal object PayMode {
 
     // On: turned on, with nothing missing, or an extension that takes over paying (the action "pay"), which needs none
     // of it. What everything about paying checks, in Kav and outside it (PayEntry).
-    fun on(ctx: Context) = uk.noammm.kav.ext.Actions.held("pay") || Prefs.ravPass(ctx) && missing(ctx).isEmpty()
+    fun on(ctx: Context) = uk.noammm.kav.ext.Actions.held("pay") || Prefs.zuzu(ctx) || Prefs.ravPass(ctx) && missing(ctx).isEmpty()
 
     // Turned on, and something gone since (Rav-Pass removed, the reader switched off in Android, a force stop, showing
     // over other apps taken back): said, never hidden silently.
@@ -427,6 +428,9 @@ internal object PayMode {
         private set
     // Home's pay button offering it with a yellow dot, to a rider updating to Kav 5 without it.
     var offer by mutableStateOf(false)
+        private set
+    // Paying goes through Zuzu (Prefs.zuzu), for Settings' line.
+    var zuzuOn by mutableStateOf(false)
         private set
     // Read again at start and each time Kav comes back. The first time on a phone set up before Kav 5: on when every
     // permission is already on (as Noam's is), else offered once on Home.
@@ -446,9 +450,12 @@ internal object PayMode {
         }
         val chosen = Prefs.ravPass(ctx)
         val extension = uk.noammm.kav.ext.Actions.held("pay")
-        Shown.payments = extension || chosen && missing.isEmpty()
-        lost = if (chosen && !extension) missing else emptyList()
-        offer = Prefs.ravPassOffer(ctx) && !chosen && !extension
+        // Pay with Zuzu (Zuzu below): Pay buttons open the IDF's app, which needs none of Rav-Pass's permissions.
+        val zuzu = Prefs.zuzu(ctx)
+        zuzuOn = zuzu
+        Shown.payments = extension || zuzu || chosen && missing.isEmpty()
+        lost = if (chosen && !extension && !zuzu) missing else emptyList()
+        offer = Prefs.ravPassOffer(ctx) && !chosen && !extension && !zuzu
     }
 
     // The switch turned on, or Home's offer: on at once when nothing is missing, else the setup popup (PaySetup).
@@ -475,7 +482,39 @@ internal object PayMode {
 // The switch, in Settings and in setup. Turned on with something missing since: Action required, and the setup popup,
 // which has the way to turn it off.
 @Composable
-internal fun PayModeSwitch() = ListGroup(Modifier.padding(top = K.gap6)) { row { PayModeRow() } }
+internal fun PayModeSwitch() = ListGroup(Modifier.padding(top = K.gap6)) { row { PayModeRow() }; row { ZuzuRow() } }
+
+// Pay with Zuzu: soldiers' and reservists' Zuzu app, which the Pay buttons open instead of Rav-Pass while this is on.
+// Adapted from the Soldiers extension in https://github.com/yair-654/yairs-kav-extensions (Yair, GPL-3.0), its Zuzu.kt and
+// its "Pay with Zuzu" setting, kept here as Kav's own switch.
+internal object Zuzu {
+    private const val PACKAGE = "il.idf.zuzu"
+    private const val WEBSITE = "https://zuzu.prat.idf.il"
+
+    // The app, or its website when the app isn't on the phone (the manifest's <queries> lets Kav see it).
+    fun open(ctx: Context) {
+        val app = Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER).setPackage(PACKAGE).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        try {
+            ctx.startActivity(app)
+        } catch (_: ActivityNotFoundException) {
+            try { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(WEBSITE)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
+            catch (_: ActivityNotFoundException) { }
+        }
+    }
+}
+
+@Composable
+private fun ZuzuRow() {
+    val ctx = LocalContext.current
+    var on by remember { mutableStateOf(Prefs.zuzu(ctx)) }
+    ToggleRow(T("Pay with Zuzu", "תשלום בזוזו"), on, { Canvas(Modifier.size(18.dp)) { drawQr() } },
+        info = T("Pay buttons on Home and on each ride open Zuzu instead. It needs none of Kav's permissions.",
+            "כפתורי התשלום במסך הבית ובכל נסיעה פותחים את זוזו. אין צורך בהרשאות של Kav.")) { want ->
+        on = want
+        Prefs.setZuzu(ctx, want)
+        PayMode.refresh(ctx); uk.noammm.kav.PayEntry.sync(ctx)
+    }
+}
 
 // The switch's row: what turning it on asks for is behind its (i).
 @Composable

@@ -57,6 +57,8 @@
         <package android:name="co.hopon.client" />
         <!-- egg, Egged's app on the same HopOn platform, the other payment app the rider can choose (PayApp). -->
         <package android:name="com.egged.egg" />
+        <!-- Zuzu, the IDF's app, which the Pay buttons open while Pay with Zuzu is on (ui.Zuzu). -->
+        <package android:name="il.idf.zuzu" />
         <!-- The apps that open Rav-Pass's store link, to offer the Play Store or Aurora Store for getting it (RavPass.store). -->
         <intent>
             <action android:name="android.intent.action.VIEW" />
