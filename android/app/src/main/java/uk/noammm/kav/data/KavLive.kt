@@ -468,6 +468,25 @@ object KavLive {
         return out
     }
 
+    // The same encoding, going the other way: points to an encoded polyline at five decimal places (decodePolyline's own).
+    fun encodePolyline(points: List<Pair<Double, Double>>): String {
+        val out = StringBuilder(points.size * 8)
+        var lastLat = 0L; var lastLon = 0L
+        for ((lat, lon) in points) {
+            if (!lat.isFinite() || !lon.isFinite()) continue
+            val a = Math.round(lat * 1e5); val o = Math.round(lon * 1e5)
+            encodeValue(out, a - lastLat); encodeValue(out, o - lastLon)
+            lastLat = a; lastLon = o
+        }
+        return out.toString()
+    }
+
+    private fun encodeValue(out: StringBuilder, value: Long) {
+        var n = if (value < 0) (value shl 1).inv() else value shl 1
+        while (n >= 0x20) { out.append(((0x20L or (n and 0x1f)) + 63).toInt().toChar()); n = n ushr 5 }
+        out.append((n + 63).toInt().toChar())
+    }
+
     // When the trip left its first stop, from the middle of its key.
     fun firstOf(vehicleId: String): Long? = vehicleId.split('_').getOrNull(1)
         ?.let { runCatching { java.time.OffsetDateTime.parse(it).toEpochSecond() }.getOrNull() }
