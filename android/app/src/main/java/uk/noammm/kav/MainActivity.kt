@@ -1400,26 +1400,56 @@ private fun Shell(model: KavModel) {
 // Back on a tab, it's where it was left: each tab once opened keeps its page, scroll and map while another is in front.
 // Behind another it isn't laid out or drawn, and its own lifecycle waits at CREATED, so what it polls, its map and its
 // back handlers pause until it's back.
+// A change fades through: the tab left fades out first and only then the next one fades in, so two tabs never show
+// through each other.
 @Composable
 private fun TabStack(current: Tab, content: @Composable (Tab) -> Unit) {
     // The tabs opened so far, in the order they were first opened.
     val seen = remember { ArrayList<Tab>() }
     val opened = remember(current) { seen.apply { if (current !in this) add(current) }.toList() }
+    val fades = remember { HashMap<Tab, androidx.compose.animation.core.Animatable<Float, androidx.compose.animation.core.AnimationVector1D>>() }
     val focus = androidx.compose.ui.platform.LocalFocusManager.current
-    LaunchedEffect(current) { focus.clearFocus() }
+    LaunchedEffect(current) {
+        focus.clearFocus()
+        // The tabs still showing (the one left, or one cut off fading in) fade out, then this one fades in.
+        kotlinx.coroutines.coroutineScope {
+            fades.filterKeys { it != current }.values.filter { it.value > 0f }.forEach { fade ->
+                launch { fade.animateTo(0f, tween((90 * fade.value).toInt(), easing = androidx.compose.animation.core.FastOutLinearInEasing)) }
+            }
+        }
+        fades[current]?.animateTo(1f, tween(210, easing = androidx.compose.animation.core.LinearOutSlowInEasing))
+    }
+    uk.noammm.kav.ui.VeilMaps { fades.any { (tab, fade) -> fade.value != if (tab == current) 1f else 0f } }
     androidx.compose.ui.layout.Layout(
         content = {
             opened.forEach { tab ->
                 key(tab) {
-                    TabLifecycle(tab == current) {
-                        Box(Modifier.fillMaxSize()) { content(tab) }
+                    val shown = tab == current
+                    // The first tab shows at once; any opened after it fades in.
+                    val fade = remember { fades.getOrPut(tab) { androidx.compose.animation.core.Animatable(if (fades.isEmpty()) 1f else 0f) } }
+                    // A tab shown again comes to life (its map, the rider's location, its data) once it has faded in, so
+                    // that doesn't take the fade's frames; one opened for the first time starts at once to make its page.
+                    val inFront by remember { derivedStateOf { fade.value >= 1f } }
+                    val wasInFront = remember { booleanArrayOf(false) }
+                    SideEffect { if (inFront) wasInFront[0] = true }
+                    TabLifecycle(shown && (inFront || !wasInFront[0])) {
+                        Box(
+                            Modifier.fillMaxSize().graphicsLayer {
+                                alpha = fade.value
+                                val grow = if (shown) 0.94f + 0.06f * fade.value else 1f
+                                scaleX = grow
+                                scaleY = grow
+                            },
+                        ) { content(tab) }
                     }
                 }
             }
         },
     ) { measurables, constraints ->
-        val front = measurables[opened.indexOf(current)].measure(constraints)
-        layout(constraints.maxWidth, constraints.maxHeight) { front.place(0, 0) }
+        // Behind the one in front, only a tab still fading out is laid out and drawn.
+        val showing = opened.indices.filter { opened[it] != current && (fades[opened[it]]?.value ?: 0f) > 0f } + opened.indexOf(current)
+        val placeables = showing.map { measurables[it].measure(constraints) }
+        layout(constraints.maxWidth, constraints.maxHeight) { placeables.forEach { it.place(0, 0) } }
     }
 }
 
@@ -1801,7 +1831,7 @@ fun trackLocation(
 fun trackHeading(ctx: Context, onHeading: (Float) -> Unit): () -> Unit {
     val sm = ctx.getSystemService(Context.SENSOR_SERVICE) as? SensorManager ?: return {}
     val sensor = sm.getDefaultSensor(Sensor.TYPE_ROTATION_VECTOR) ?: return {}
-    val rotation = FloatArray(9); val remapped = FloatArray(9); val orientation = FloatArray(3)
+    val rotation = FloatArray(9); val remapped = FloatArray(9)
     var smoothed: Float? = null
     var published: Float? = null
     val listener = object : SensorEventListener {
@@ -1816,8 +1846,12 @@ fun trackHeading(ctx: Context, onHeading: (Float) -> Unit): () -> Unit {
                 else -> SensorManager.AXIS_X to SensorManager.AXIS_Y
             }
             SensorManager.remapCoordinateSystem(rotation, ax, ay, remapped)
-            SensorManager.getOrientation(remapped, orientation)
-            val raw = ((Math.toDegrees(orientation[0].toDouble()) + 360.0) % 360.0).toFloat()
+            // The way the screen's top and the phone's back point, flat on the ground, together: lying flat it's the
+            // top, held upright the back. The top alone (getOrientation) turned half round as the phone stood past
+            // upright, and swung about near it.
+            val east = remapped[1] - remapped[2]
+            val north = remapped[4] - remapped[5]
+            val raw = ((Math.toDegrees(kotlin.math.atan2(east, north).toDouble()) + 360.0) % 360.0).toFloat()
             val previous = smoothed
             val next = if (previous == null) raw else {
                 var delta = raw - previous

@@ -2,6 +2,7 @@ package uk.noammm.kav.ui
 
 import androidx.compose.foundation.border
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.CacheDrawScope
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.RoundRect
@@ -15,6 +16,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.layer.CompositingStrategy
+import androidx.compose.ui.graphics.layer.drawLayer
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.dp
 import kotlin.math.PI
@@ -50,11 +53,23 @@ private fun Modifier.outlined(shape: Shape, style: String, color: Color, card: B
         is Outline.Generic -> RoundRect(o.path.getBounds())
     }
     val draw = outlineOf(style, rr, color, card)
+    val over = kept(style, draw.over)
     onDrawWithContent {
         draw.behind(this)
         drawContent()
-        draw.over(this)
+        over()
     }
+}
+
+// A sketched edge is a long path the GPU strokes again in every frame, which on a phone slows every screen it is on, the
+// more so under glass redrawn with the map behind it. Drawn once into a layer of its own, it is then drawn as a picture.
+fun CacheDrawScope.kept(style: String, over: DrawScope.() -> Unit): DrawScope.() -> Unit {
+    if (style != "sketch") return over
+    val layer = obtainGraphicsLayer().apply {
+        compositingStrategy = CompositingStrategy.Offscreen
+        record { over() }
+    }
+    return { drawLayer(layer) }
 }
 
 // The edge of one part, worked out once for its size: what goes under its content (a control's gloss) and over it.
