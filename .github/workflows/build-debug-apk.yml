@@ -30,7 +30,7 @@ jobs:
         working-directory: android
         env:
           KAV_DEBUG_KEYSTORE: ${{ runner.temp }}/debug.keystore
-        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.2.3-fork.3 --console=plain
+        run: ./gradlew :app:assembleDebug -PkavDevId=dev -PkavVersionName=5.2.3-fork.4 --console=plain
 
       - uses: actions/upload-artifact@v4
         with:
@@ -41,4 +41,4 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         run: |
           cp android/app/build/outputs/apk/debug/app-debug.apk app-debug.apk
-          gh release create v5.2.3-fork.3 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.2.3-fork.3" --notes "Fork build of Kav 5.2.3 (Noam's code) plus our leave-now timing and alert, a Home look switch (old or new, in Settings > Look; the old look has the Pay for a ride row as in 5.1) (#117, #127), and the in-app updater now reading this fork's releases. Installs over the previous fork build (same package and key)."
+          gh release create v5.2.3-fork.4 app-debug.apk --prerelease --target "$GITHUB_SHA" --title "Kav-Dev 5.2.3-fork.4" --notes "Fork build of Kav 5.2.3 (Noam's code) plus our leave-now timing and alert, a Home look switch (old or new, in Settings > Look; the old look has the Pay for a ride row as in 5.1) (#117, #127), the in-app updater reading this fork's releases, and the fix for hidden or unpaired line variants and false two-way marks (#138). Installs over the previous fork build (same package and key)."
