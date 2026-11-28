@@ -16,7 +16,11 @@ import java.net.URL
 object Updates {
     const val OWNER = "ImNoammm"
     const val REPO = "kav"
-    const val PAGE = "https://github.com/$OWNER/$REPO/releases"
+    // Where this fork's builds are updated from: the fork's own releases, not Noam's (whose official builds carry another
+    // signing key, so they would not install over a fork build). Map packs and the timetable still come from OWNER/REPO.
+    const val UPDATE_OWNER = "o29mxuhta"
+    const val UPDATE_REPO = "Kav"
+    const val PAGE = "https://github.com/$UPDATE_OWNER/$UPDATE_REPO/releases"
 
     class Release(
         val version: String,
@@ -31,8 +35,10 @@ object Updates {
     fun installedVersion(ctx: Context): String =
         runCatching { ctx.packageManager.getPackageInfo(ctx.packageName, 0).versionName }.getOrNull() ?: "0"
 
+    // The fork's newest build: of its releases, the newest by number among those not drafts, tagged as a fork build
+    // ("-fork.") and with an APK. Its builds are pre-releases, which GitHub's own "latest" leaves out, so the list is read.
     fun latest(): Release {
-        val c = (RiderProxy.open(URL("https://api.github.com/repos/$OWNER/$REPO/releases/latest")) as HttpURLConnection).apply {
+        val c = (RiderProxy.open(URL("https://api.github.com/repos/$UPDATE_OWNER/$UPDATE_REPO/releases?per_page=30")) as HttpURLConnection).apply {
             connectTimeout = 10_000; readTimeout = 15_000
             setRequestProperty("Accept", "application/vnd.github+json")
             setRequestProperty("X-GitHub-Api-Version", "2022-11-28")
@@ -40,13 +46,27 @@ object Updates {
         }
         val code = c.responseCode
         if (code != 200) throw RuntimeException("GitHub HTTP $code")
-        val o = JSONObject(c.inputStream.use { String(it.readBytes(), Charsets.UTF_8) })
-        val assets = o.optJSONArray("assets")
-        var apk: JSONObject? = null
-        for (i in 0 until (assets?.length() ?: 0)) {
-            val a = assets!!.optJSONObject(i) ?: continue
-            if (a.optString("name").endsWith(".apk", ignoreCase = true)) { apk = a; break }
+        val list = org.json.JSONArray(c.inputStream.use { String(it.readBytes(), Charsets.UTF_8) })
+        var best: JSONObject? = null
+        var bestApk: JSONObject? = null
+        for (i in 0 until list.length()) {
+            val o = list.optJSONObject(i) ?: continue
+            if (o.optBoolean("draft")) continue
+            val tag = o.optString("tag_name")
+            if (!tag.contains("-fork.")) continue
+            val assets = o.optJSONArray("assets")
+            var apk: JSONObject? = null
+            for (j in 0 until (assets?.length() ?: 0)) {
+                val a = assets!!.optJSONObject(j) ?: continue
+                if (a.optString("name").endsWith(".apk", ignoreCase = true)) { apk = a; break }
+            }
+            if (apk == null) continue
+            if (best == null || isNewer(tag.removePrefix("v").removePrefix("V"), best.optString("tag_name").removePrefix("v").removePrefix("V"))) {
+                best = o; bestApk = apk
+            }
         }
+        val o = best ?: throw RuntimeException("No fork release with an APK")
+        val apk = bestApk
         return Release(
             version = o.optString("tag_name").removePrefix("v").removePrefix("V"),
             name = o.optString("name"),
