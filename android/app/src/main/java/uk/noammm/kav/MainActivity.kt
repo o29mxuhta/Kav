@@ -2040,6 +2040,9 @@ object Prefs {
     // Which app paying goes through (ui.PayApp): its enum name, empty until chosen (then Rav-Pass).
     fun payApp(ctx: Context): String = store(ctx).getString("payApp", "") ?: ""
     fun setPayApp(ctx: Context, app: String) = store(ctx).edit().putString("payApp", app).apply()
+    // "Pay with Zuzu" (ui.Zuzu): the Pay buttons open Zuzu instead; off until the rider turns it on.
+    fun zuzu(ctx: Context): Boolean = store(ctx).getBoolean("zuzu", false)
+    fun setZuzu(ctx: Context, on: Boolean) = store(ctx).edit().putBoolean("zuzu", on).apply()
 
     // The button over Rav-Pass back to Kav (PayOverlay): on with "Pay with Rav-Pass", and where the button was left.
     fun payOverlay(ctx: Context): Boolean = store(ctx).getBoolean("payOverlay", false)
