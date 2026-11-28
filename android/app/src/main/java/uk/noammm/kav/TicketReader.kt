@@ -63,9 +63,7 @@ class TicketReader : AccessibilityService() {
     private var pendingSince = 0L
 
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
-        // The chosen payment app, read again here: the service can outlive Kav's own screens. An event from the other
-        // payment app (not chosen) is ignored, as every other app's is.
-        uk.noammm.kav.ui.PayApp.refresh(this)
+        // An event from the payment app that isn't chosen (PayApp) is ignored, as every other app's is.
         if (event?.packageName != TicketScreens.PACKAGE || !Prefs.tickets(this) || Build.VERSION.SDK_INT < Build.VERSION_CODES.R) return
         val now = System.currentTimeMillis()
         if (pendingSince == 0L) pendingSince = now
@@ -570,6 +568,16 @@ internal object TicketStore {
         kept = Tickets.current(Tickets.live(kept.filter { it.key != t.key }, now) + t)
         runCatching { save(ctx) }
         history = RideHistory.record(history, t)
+        runCatching { saveHistory(ctx) }
+    }
+
+    // Rides an extension put in the history (Kav.addRides), each already there by its key brought up to date, and those it
+    // took out (removed: their keys).
+    fun putRides(ctx: Context, rides: List<Ride>, removed: Set<String> = emptySet()) {
+        load(ctx)
+        val next = uk.noammm.kav.ext.KavData.withRides(history, rides, removed)
+        if (next == history) return
+        history = next
         runCatching { saveHistory(ctx) }
     }
 

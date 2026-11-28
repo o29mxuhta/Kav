@@ -75,11 +75,13 @@ At most 64 KB.
   "format": 1,
   "name": "speed-card",
   "displayName": "Speed card",
+  "displayNameHe": "כרטיס מהירות",
   "version": "1.0.0",
   "release": 1,
   "minKav": 45,
   "api": 2,
   "description": "Your speed on Home, from the phone's GPS.",
+  "descriptionHe": "המהירות שלך במסך הבית, לפי ה-GPS של הטלפון.",
   "native": { "dex": "classes.dex", "entry": "org.example.speed.Speed" },
   "adds": ["location", "notifications"],
   "contributions": [{ "id": "card", "capability": "slot.home" }]
@@ -91,18 +93,22 @@ At most 64 KB.
 | `format` | `1`. |
 | `name` | `a` to `z`, digits, `.`, `_`, `-`; starts with a letter or digit; at most 64 characters. Its folder in the bundle has this name. With the source it is the extension's identity, so it never changes. |
 | `displayName` | What riders see. Any language and emoji. Kav cleans it ("Names" below) and cuts it at 64 characters; never refused. Defaults to `name`. |
+| `displayNameHe` | Optional: its name for riders who have Kav in Hebrew, shown in place of `displayName` there and cleaned the same way. Without it, or empty after cleaning, they see `displayName`. Kav 5.2 and later read it, for any `api`; an older Kav ignores it. |
+| `kind` | `"theme"` for a theme ([screens.md](/docs/extensions/screens#themes)): Kav calls it a theme, lists it with themes and applies one at a time. Anything else, or none, is an extension. API 5. |
 | `version` | What riders see as the version. Any text up to 32 characters. Kav does not compare versions. |
 | `release` | Needed: a whole number from 1. Riders see it beside the version. Raise it with each release. |
 | `minKav` | The lowest Kav version code that can run it. Kav 5 is 45; set at least 45. An extension that needs a newer Kav is listed and can't be switched on. Default 0. |
-| `api` | The API it was made for: `2` or `3` for Kav 5.0, `4` for actions, screen parts, tickets and hooks, with Kav 5.1 (`minKav` 47). Default 1. |
+| `api` | The API it was made for: `2` or `3` for Kav 5.0, `4` for actions, screen parts, tickets and hooks, with Kav 5.1 (`minKav` 47), `5` for planner tabs, the rider's trips, home screen widgets and Kav's timetable and live vehicles, with Kav 5.2 (`minKav` 48). Default 1. |
 | `description` | At most 2000 characters. |
-| `native` | Its Android code: `{ "dex": "<path in its folder>", "entry": "<full class name>" }`. Needed. See [native.md](/docs/extensions/native). |
+| `descriptionHe` | Optional: its description for riders who have Kav in Hebrew, in place of `description`; at most 2000 characters. Read as `displayNameHe` is. |
+| `native` | Its Android code: `{ "dex": "<path in its folder>", "entry": "<full class name>" }`. Needed, except for a theme, which may bring none. See [native.md](/docs/extensions/native). |
 | `permissions` | A list of plain words (the same rule as `name`). Kav shows them to riders as written. |
 | `adds` | What it adds that Kav can't see in its code: any of `"map"` (draws on Kav's maps), `"notifications"`, `"location"` (uses the phone's location) and `"settings"` (a settings view of its own). Kav says these, with what the rest of the manifest shows (a Home card, a tab, route rules), on its row in Settings › Extensions and under "It can". Another word is ignored. |
 | `contributions` | What it offers. Each: `id` (same rule as `name`, unique in the manifest), `capability` (a plain word; one from the table below does something, any other installs and does nothing), and optionally its own `permissions`. An old `domain` field is ignored. |
 | `icon` | Optional: a picture in its folder (`.png`, `.jpg`, `.jpeg` or `.webp`), shown where it is listed. |
 | `pages`, `settings` | Its own screens and what the rider can set. See [screens.md](/docs/extensions/screens). |
-| `theme` | Colors, for a `theme` contribution. See [screens.md](/docs/extensions/screens). |
+| `widgets` | Its home screen widgets, for a `widget.provide` contribution (API 5). See [screens.md](/docs/extensions/screens#home-screen-widgets). |
+| `theme` | Its look: colors, line badges, corners, a font, outlines, the colors of Kav's map and pictures for some of its parts, for a theme or a `theme` contribution. See [screens.md](/docs/extensions/screens#themes). |
 | `hooks` | For a `hooks` contribution: each function of Kav's it hooks, `{ "class", "method", "params": [types] }`. See [native.md](/docs/extensions/native#hooks-into-kav-itself). |
 | `tags` | For an annotator: words for up to 32 of its tags, `"id": { "en": "words", "he": "words" }`. `en` is needed, each at most 40 characters. |
 | `reasons` | Your own short reason under a line Kav shows riders. See "Reasons" below. Its old name, `explanations`, is still read. |
@@ -117,11 +123,13 @@ At most 64 KB.
 | `plan.provide` | a trip planner |
 | `board.provide` | stops, timetables and stop boards |
 | `page.provide`, `home.body` | its own pages, and the page `home` as a Home body |
-| `theme` | colors from the manifest |
+| `theme` | an extension's look from the manifest (a theme, `"kind": "theme"`, needs no contribution for it) |
 | `slot.home`, `slot.results`, `slot.trip`, `slot.stop` | a card on Home, a line under each search result, a card on a trip's page, a card on stop boards |
 | `action.<name>` (API 4) | takes over one of Kav's actions, `action.pay` for paying ([native.md](/docs/extensions/native#actions) lists them) |
 | `part.<name>` (API 4) | adds a view to one of Kav's screen parts, or replaces it, `part.home.pay` for Home's pay card ([native.md](/docs/extensions/native#screen-parts)) |
 | `hooks` (API 4) | hooks on Kav's own code, each function listed under the manifest's `"hooks"` ([native.md](/docs/extensions/native#hooks-into-kav-itself)) |
+| `widget.provide` (API 5) | home screen widgets, each listed under the manifest's `"widgets"` ([screens.md](/docs/extensions/screens#home-screen-widgets)) |
+| `results.add` (API 5) | routes from Kav's own planner, first in Kav's results ([hooks.md](/docs/extensions/hooks#kavs-own-planner-kavplan-resultsadd-and-kavswitchtrip-api-5)) |
 
 Each part of an extension has every power the manifest declares. Code you register only shows when the manifest
 declares it too ([native.md](/docs/extensions/native) has the table).
@@ -192,7 +200,7 @@ checks keeps the one it had and shows the reason.
 
 ## A bundle file
 
-A rider can add a `.kavb` from the phone (Settings › Extensions › Sources › Add a bundle file). It becomes a source of
+A rider can add a `.kavb` from the phone (Settings › Extensions › Sources › + › Add a bundle file). It becomes a source of
 its own, named by its `bundle.json` or the file's name. A file source never updates: a new build is a different
 file, so it is a different source with different identities. Remove the old one before you add the new one.
 
@@ -227,7 +235,11 @@ never refuses one for it:
 - any run of spaces one space, none at the ends;
 - at most 64 characters.
 
-A `displayName` that is empty after cleaning is the extension's `name` instead.
+A `displayName` that is empty after cleaning is the extension's `name` instead, and a `displayNameHe` that is empty
+after cleaning is no Hebrew name.
+
+Kav lists extensions (in Settings › Extensions, a source's page, the themes and the home screen widget picker) by the
+name riders see, alphabetically in Kav's language. In Hebrew, names whose first letter is Latin come after the rest.
 
 Nothing an extension draws itself is cleaned: its views, a filter's reasons and its tags are shown as they come.
 

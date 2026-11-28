@@ -271,19 +271,16 @@ private fun TripDetailBody(
     Column(Modifier.fillMaxSize()) {
         KavPart("trip.header", trip, about) {
         Row(
-            Modifier.fillMaxWidth().padding(K.gap3).heightIn(min = 48.dp),
+            Modifier.fillMaxWidth().topBar().padding(horizontal = K.gap4, vertical = K.gap3).heightIn(min = 48.dp),
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(K.gap3),
         ) {
             BackButton(onBack)
-            Spacer(Modifier.width(K.gap3))
-            Text(T("Trip", "נסיעה"), style = K.type.title, maxLines = 1, modifier = Modifier.weight(1f))
+            Text(T("Trip", "נסיעה"), style = K.type.title, color = topBarInk, maxLines = 1, modifier = Modifier.weight(1f))
             ShareButton(onShare)
             val taxiOnly = trip.legs.any { it.kind == Transit.LegKind.TAXI } &&
                 trip.legs.none { it.kind == Transit.LegKind.RIDE }
-            if (!taxiOnly) {
-                Spacer(Modifier.width(K.gap2))
-                StartButton(onStart)
-            }
+            if (!taxiOnly) StartButton(onStart)
         }
         }
 
@@ -292,7 +289,7 @@ private fun TripDetailBody(
             .padding(bottom = LocalBottomBarInset.current)) {
             // Where you are and which way you face before a trip starts, as while it's under way.
             KavPart("trip.map", trip, about) {
-                RouteMap(trip, r, modifier = Modifier.padding(horizontal = K.gap3, vertical = K.gap2),
+                RouteMap(trip, r, modifier = Modifier.padding(horizontal = K.gap4, vertical = K.gap2),
                     me = me, heading = heading, onShown = onMapShown)
             }
             KavPart("trip.summary", trip, about) { Summary(trip, r) }
@@ -328,9 +325,11 @@ private fun Summary(trip: Transit.Itinerary, r: Transit.Resolved) {
 }
 
 // What a route is best at, as small ovals on its card and its page: a late train's in red, and a route likely missed.
+// last: one more oval of the caller's after them, as a card's wheelchair accessible.
 @Composable
-internal fun RouteTags(trip: Transit.Itinerary, modifier: Modifier = Modifier) {
-    val tags = trip.tags.mapNotNull { tag -> KavPlan.tagWord(tag)?.let { it to (KavPlan.isLate(tag) || tag == KavPlan.LIKELY_MISSED) } }
+internal fun RouteTags(trip: Transit.Itinerary, modifier: Modifier = Modifier, last: String? = null) {
+    val tags = trip.tags.mapNotNull { tag -> KavPlan.tagWord(tag)?.let { it to (KavPlan.isLate(tag) || tag == KavPlan.LIKELY_MISSED) } } +
+        listOfNotNull(last?.let { it to false })
     // Tags that come with a later answer open in place, and go the same way.
     var tagged by remember { mutableStateOf(tags) }
     if (tags.isNotEmpty()) tagged = tags
@@ -411,13 +410,13 @@ private fun Timeline(
         return -1
     }
     Column(
-        Modifier.fillMaxWidth().padding(horizontal = K.gap3)
+        Modifier.fillMaxWidth().padding(horizontal = K.gap4)
             .panel(K.rCard).padding(vertical = K.gap2),
     ) {
         val start = rememberTripEnd(fromLabel, trip.legs.firstOrNull()?.shape?.firstOrNull())
         Rail(Mark.START, null, walk, node = endNode(start)) {
             val (time, label) = leaveEndpoint(trip, System.currentTimeMillis() / 1000)
-            Endpoint(fromLabel, time, label, start)
+            Endpoint(placeLabel(fromLabel), time, label, start)
         }
         var boarded = -1
         trip.legs.forEachIndexed { i, l ->
@@ -467,10 +466,10 @@ private fun Timeline(
                                 hm.format(Date(l.dep * 1000)), mode,
                                 platform = r.platform(l, wait),
                                 stopId = l.fromStop,
-                                streetView = (board?.point ?: l.shape.firstOrNull())?.let { lookAt(it, l, r) },
+                                streetView = (board?.point ?: l.shape.firstOrNull())?.let { lookAt(it, l, r, board) },
                             )
                             Spacer(Modifier.height(K.gap2))
-                            KavPart("trip.ride", l, { leg(trip, r, i) }) { BoardCard(l, wait, r, onTrack, onReport, asked) { RideSummary(l, r, fares[i]) } }
+                            KavPart("trip.ride", l, { leg(trip, r, i) }) { BoardCard(l, wait, r, onTrack, onReport, asked) { RideSummary(l, r, fares[i]) { leg(trip, r, i) } } }
                         }
                     }
                     val alight = r.stop(l.toStop)
@@ -488,7 +487,7 @@ private fun Timeline(
                                 hm.format(Date(next.dep * 1000)), legMode(next, r),
                                 platform = r.platform(next, nextWait),
                                 stopId = l.toStop,
-                                streetView = alight?.point?.let { lookAt(it, l, r) },
+                                streetView = alight?.point?.let { lookAt(it, l, r, alight) },
                                 note = T("Change here · you arrive $arrive", "החלפה כאן · מגיעים ב-$arrive"),
                             )
                             change?.let {
@@ -496,7 +495,7 @@ private fun Timeline(
                                 ChangeBlock(it)
                             }
                             Spacer(Modifier.height(K.gap2))
-                            KavPart("trip.ride", next, { leg(trip, r, n) }) { BoardCard(next, nextWait, r, onTrack, onReport, asked) { RideSummary(next, r, fares[n]) } }
+                            KavPart("trip.ride", next, { leg(trip, r, n) }) { BoardCard(next, nextWait, r, onTrack, onReport, asked) { RideSummary(next, r, fares[n]) { leg(trip, r, n) } } }
                         }
                         boarded = n
                     } else {
@@ -509,7 +508,7 @@ private fun Timeline(
                                 hm.format(Date((if (r.isTrain(l)) r.alightAt(l) else l.arr) * 1000)), mode,
                                 platform = if (walkingToTrain) r.alightPlatform(l) else "",
                                 stopId = if (l === lastRide) l.toStop else -1,
-                                streetView = alight?.point?.let { lookAt(it, l, r) },
+                                streetView = alight?.point?.let { lookAt(it, l, r, alight) },
                             )
                         }
                     }
@@ -529,9 +528,10 @@ private fun leg(trip: Transit.Itinerary, r: Transit.Resolved, i: Int): JSONObjec
     JSONObject().put("trip", Slots.trip(trip, r)).put("leg", uk.noammm.kav.ext.Pipeline.legJson(trip.legs[i], r)).put("index", i)
 
 // Under a ride's line: how many stops and minutes it rides, its own fare (rideFares), and paying for it with Rav-Pass.
+// about: what its pay row's part (ride.pay) is told.
 @Composable
 private fun RideSummary(
-    l: Transit.Leg, r: Transit.Resolved, fare: Int?,
+    l: Transit.Leg, r: Transit.Resolved, fare: Int?, about: () -> JSONObject,
 ) {
     Separator(0.dp)
     Box(Modifier.padding(vertical = K.gap1)) {
@@ -539,7 +539,7 @@ private fun RideSummary(
         if (l.options.size == 1) RideStops(l, r) { Step(rideLabel(l), price) }
         else if (price != null) Step(T("Fare", "מחיר"), price)
     }
-    if (Shown.payments) Box(Modifier.padding(bottom = K.gap2)) { RidePay(l, r) }
+    if (Shown.payments) Box(Modifier.padding(bottom = K.gap2)) { RidePay(l, r, about) }
 }
 
 // Each ride's own fare, by leg index. A plan gives every ride of a stretch one ticket covers the whole ticket's price

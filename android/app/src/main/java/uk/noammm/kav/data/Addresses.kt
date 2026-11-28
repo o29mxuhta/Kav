@@ -10,9 +10,37 @@ import java.net.URL
 object Addresses {
     private const val SEARCH = "https://www.govmap.gov.il/api/search-service/autocomplete"
 
+    // The house point the search gives can be a street-level guess hundreds of metres off (Google puts "כנפי נשרים 31
+    // ירושלים" about 540 m from the house, #128). GovMap holds the Survey of Israel's house points, so when both know the
+    // house and disagree by more than this many metres, GovMap's wins.
+    private const val DISAGREE_M = 150.0
+
+    // Settings' Exact house numbers, off unless the rider turns it on: GovMap then gets every typed address, not only the
+    // ones the search can't place.
+    @Volatile var checkHouse = false
+
     fun find(query: String, at: Pair<Double, Double>?, search: PlaceSearch = Search.provider): List<Transit.Place> {
         val typed = TypedAddress.parse(query) ?: return emptyList()
-        runCatching { search.house(query, at) }.getOrNull()?.let { return listOf(it) }
+        if (!checkHouse) {
+            runCatching { search.house(query, at) }.getOrNull()?.let { return listOf(it) }
+            return govMap(query, typed, at)
+        }
+        // Both asked at once, so the check waits at most 1.5 s more than the search, and only when GovMap is slower.
+        val gov = java.util.concurrent.FutureTask { runCatching { govMap(query, typed, at) }.getOrNull().orEmpty() }
+        Thread(gov, "govmap").apply { isDaemon = true }.start()
+        val found = runCatching { search.house(query, at) }.getOrNull()
+            ?: return runCatching { gov.get() }.getOrNull().orEmpty()
+        val house = runCatching { gov.get(1500, java.util.concurrent.TimeUnit.MILLISECONDS) }.getOrNull().orEmpty().firstOrNull()
+        return listOf(pick(found, house, typed.hasTown))
+    }
+
+    // GovMap's house wins when it's far from the search's, but only for a typed town: without one, GovMap's first match may
+    // be the same street and number in another town.
+    internal fun pick(found: Transit.Place, gov: Transit.Place?, townTyped: Boolean): Transit.Place =
+        if (gov != null && townTyped && uk.noammm.kav.ui.metres(found.lat, found.lon, gov.lat, gov.lon) > DISAGREE_M) gov
+        else found
+
+    private fun govMap(query: String, typed: TypedAddress, at: Pair<Double, Double>?): List<Transit.Place> {
         val body = JSONObject()
             .put("searchText", query.trim())
             .put("language", if (query.any { it in 'א'..'ת' }) "he" else "en")
@@ -79,6 +107,8 @@ internal class TypedAddress private constructor(
     }
 
     // Ben Gurion 13 in Ashkelon is not the one in Ashdod. Towns are spelled many ways, so the first letters decide.
+    val hasTown get() = town.isNotEmpty()
+
     fun townIs(text: String): Boolean {
         if (town.isEmpty()) return true
         val words = words(text)

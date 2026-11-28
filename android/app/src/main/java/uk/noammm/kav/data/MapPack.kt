@@ -10,6 +10,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import uk.noammm.kav.ui.T
+import uk.noammm.kav.ui.megabytes
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -61,12 +62,6 @@ class MapPack(
 
     fun onPhone(files: File) = parts.all { has(files, it) }
 
-    // What it takes on the phone, a download stopped half way included.
-    fun used(files: File): Long = parts.sumOf { p ->
-        file(files, p).let { if (it.isDirectory) it.walkTopDown().filter { f -> f.isFile }.sumOf { f -> f.length() } else it.length() } +
-            File(dir(files), p.name + PART).length()
-    }
-
     fun refresh(files: File) {
         if (state !is State.Downloading) state = if (onPhone(files)) State.Ready else State.Missing
     }
@@ -89,20 +84,9 @@ class MapPack(
                 throw e
             } catch (e: Exception) {
                 android.util.Log.e("KavMap", "$id download failed", e)
-                state = State.Failed(e.message ?: e.javaClass.simpleName)
+                state = State.Failed(why(e))
             }
         }
-    }
-
-    // Its files and anything half done go; the maps drawn from it then show what they show before a download.
-    fun remove(files: File) = synchronized(this) {
-        if (job?.isActive == true) return@synchronized
-        for (p in parts) {
-            file(files, p).deleteRecursively()
-            File(dir(files), p.name + PART).delete()
-            File(dir(files), p.kept + UNPACKING).deleteRecursively()
-        }
-        state = State.Missing
     }
 
     private fun fetch(files: File, part: Part, progress: (Long) -> Unit) {
@@ -118,7 +102,7 @@ class MapPack(
             if (download.length() == 0L) throw e
             download.length()
         }
-        if (have != part.bytes) throw IOException(T("Interrupted at ${have shr 20} MB, try again", "ההורדה נקטעה אחרי ${have shr 20} MB, נסו שוב"))
+        if (have != part.bytes) throw Said(T("Interrupted at ${have shr 20} MB, try again", "ההורדה נקטעה אחרי ${megabytes(have shr 20)}, נסו שוב"))
         place(dir, part, download)
     }
 
@@ -168,7 +152,9 @@ class MapPack(
         if (from > 0) setRequestProperty("Range", "bytes=$from-")
     }
 
-    private class HttpError(message: String) : IOException(message)
+    // A failure Kav says in its own words, in the rider's language; what the system throws is in English (why).
+    private open class Said(message: String) : IOException(message)
+    private class HttpError(message: String) : Said(message)
 
     companion object {
         const val PART = ".part"
@@ -176,12 +162,21 @@ class MapPack(
         // Written into a folder once all of it is unpacked, with the hash of what it came from.
         const val DONE = ".kav-unpacked"
 
+        // What a failed download says: Kav's own words when it said why, otherwise what most likely went wrong, in place
+        // of the system's English.
+        internal fun why(e: Exception): String = when {
+            e is Said -> e.message.orEmpty()
+            generateSequence<Throwable>(e) { it.cause }.any { t -> t.message?.let { "ENOSPC" in it || "No space left" in it } == true } ->
+                T("There isn't enough space on the phone. Free some and try again.", "אין מספיק מקום בטלפון. פנו מקום ונסו שוב.")
+            else -> T("Check the connection and try again.", "בדקו את החיבור ונסו שוב.")
+        }
+
         // A whole download gets its file's name, or is unpacked into its folder, only if its hash is the one Kav was
         // built with: a file changed on the way or at its source is thrown away unread.
         internal fun place(dir: File, part: Part, download: File) {
             if (!sha256(download).equals(part.sha256, ignoreCase = true)) {
                 download.delete()
-                throw IOException(T("The download wasn't the file Kav expects, so it was thrown away. Try again.",
+                throw Said(T("The download wasn't the file Kav expects, so it was thrown away. Try again.",
                     "ההורדה לא הייתה הקובץ ש-Kav מצפה לו, ולכן נמחקה. נסו שוב."))
             }
             val kept = File(dir, part.kept)
@@ -191,9 +186,9 @@ class MapPack(
                 TarGz.unpack(download, temp)
                 File(temp, DONE).writeText(part.sha256)
                 kept.deleteRecursively()
-                if (!temp.renameTo(kept)) throw IOException(T("Could not keep the download", "לא ניתן היה לשמור את ההורדה"))
+                if (!temp.renameTo(kept)) throw Said(T("Could not keep the download", "לא ניתן היה לשמור את ההורדה"))
                 download.delete()
-            } else if (!download.renameTo(kept)) throw IOException(T("Could not keep the download", "לא ניתן היה לשמור את ההורדה"))
+            } else if (!download.renameTo(kept)) throw Said(T("Could not keep the download", "לא ניתן היה לשמור את ההורדה"))
         }
 
         fun sha256(f: File): String {

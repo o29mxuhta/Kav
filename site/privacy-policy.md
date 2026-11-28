@@ -15,6 +15,10 @@ lists every place the app talks to, and what each one gets. It applies to the Ka
 When you pick Kav for live buses, planning or timetables, the app asks Kav's server for:
 
 - live buses on the lines, stops or rough area you're looking at;
+- live buses in the rough area around you, at most every 15 seconds while Kav is open and you're moving, if you turn
+  on Recognize the bus in a trip's settings, to see whether you're on one of them;
+- the next buses at the stop a home screen widget shows, about every half hour and when your saved stops change, also
+  while Kav is closed;
 - trips between the start and end you plan, and the time;
 - the English of a line alert your phone got in Hebrew;
 - the server's status.
@@ -80,11 +84,13 @@ instead of yours, and the proxy sees which services Kav connects to. Its address
 ## GitHub
 
 Kav downloads its offline map, the OpenFreeMap maps if you ask for them, the timetable and its own updates from GitHub,
-and checks GitHub for a new version each time it opens, unless both "Tell me about new versions" and "Download updates
-automatically" are off in Settings; daily timetable updates can be turned off there too. Once a day it also reads the
+and checks GitHub for a new version each time it opens, unless both "New version alerts" and "Automatic updates" are off in Settings; daily timetable updates can be turned off there too. Once a day it also reads the
 signed search recipe Vela Maps publishes on GitHub. GitHub sees your IP address for these downloads, not where you look.
 Until the offline map is downloaded, the preview of it in setup and in Settings is read from GitHub for one spot in Tel
 Aviv.
+
+Report a bug and Ask for a feature in Settings open GitHub's forms blank. For a bug, Kav first shows what it can add
+(its version, Android's, your phone's model and Kav's setup) and adds them only if you choose to.
 
 ## Rav-Pass
 
@@ -176,7 +182,9 @@ owner. Nothing about you or your trips goes with these requests. GitHub sees you
 asked for, as with any web request. Kav doesn't check a bundle file you added from your phone for updates. Kav reads its
 own source from GitHub the same way. In the same check, and when you tap Check now, Kav asks GitHub for its security
 block list, as it does for its own updates; nothing about you goes with it. With the list's switch off, Kav doesn't ask
-for it or apply it. Today the list is empty.
+for it or apply it. Today the list is empty. While Add a source is open, Kav asks this website, at most once a day, for
+the [community list](/community) and its sources' pictures, to suggest a few sources there; nothing about you goes with
+it, and this website keeps no access logs.
 
 **What an extension can reach.** Every extension comes in off. Its page lists, under Details, what its publisher
 declares it does. Once you switch one on, it runs at once, inside Kav, with full access, whatever its page says:

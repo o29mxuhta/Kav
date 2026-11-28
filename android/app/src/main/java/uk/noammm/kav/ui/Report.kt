@@ -709,6 +709,8 @@ internal fun ReportScreen(report: ReportFor, onClose: () -> Unit) {
                 d.step, transitionSpec = { if (targetState > initialState) forward() else backward() },
                 modifier = Modifier.weight(1f), label = "reportStep",
             ) { step ->
+                // Each step's page is a part (report.step), told the step and the bus or train reported.
+                KavPart("report.step", step, { reportArgs(d.report).put("step", step.name.lowercase()) }) {
                 when (step) {
                     ReportStep.ABOUT -> AboutStep(d)
                     ReportStep.WHAT -> WhatStep(d)
@@ -716,6 +718,7 @@ internal fun ReportScreen(report: ReportFor, onClose: () -> Unit) {
                     ReportStep.MORE -> MoreStep(d, named)
                     ReportStep.YOU -> YouStep(d)
                     ReportStep.CHECK -> CheckStep(d, named) { filling = it }
+                }
                 }
             }
         }
@@ -731,10 +734,7 @@ internal fun ReportScreen(report: ReportFor, onClose: () -> Unit) {
 @Composable
 private fun AboutStep(d: Draft) = StepPage(
     T("What do you want to report?", "על מה תרצו לדווח?"),
-    if (d.report.train) T("Kav fills in the National Public Transport Authority's form for you. It takes Israel Railways' trains and both light rails.",
-        "Kav ממלאת בשבילכם את הטופס של הרשות הארצית לתחבורה ציבורית. הוא מקבל את הרכבות של רכבת ישראל ואת שתי הרכבות הקלות.")
-    else T("Kav fills in the National Public Transport Authority's form for you. It takes every bus company's lines.",
-        "Kav ממלאת בשבילכם את הטופס של הרשות הארצית לתחבורה ציבורית. הוא מקבל את הקווים של כל חברות האוטובוסים."),
+    T("Kav fills in the National Public Transport Authority's form for you.", "Kav ממלאת בשבילכם את הטופס של הרשות הארצית לתחבורה ציבורית."),
 ) {
     BusCard(d.report)
     ReportAbout.entries.filter { it.train == d.report.train }.forEach { a ->
@@ -789,9 +789,8 @@ private fun RideStep(d: Draft, named: (ReportStop) -> ReportStop) {
         WhenField(T("When it happened", "מתי זה קרה"), momentLabel(d.at)) { d.choosingTime = true }
         if (issue.appeal) {
             Heading(T("The demand", "הדרישה"))
-            Hint(true, T("Appeals go to the National Transport Supervisor, within 60 days of the demand. The form asks for a " +
-                "photo of it too, which you can add in the next step.", "ערעורים עוברים למפקח הארצי על התעבורה, בתוך 60 יום " +
-                "מקבלת הדרישה. הטופס מבקש גם צילום שלה, ואפשר להוסיף אותו בשלב הבא."))
+            Hint(true, T("Appeals go in within 60 days of the demand. Add a photo of it in the next step.",
+                "ערעור מגישים בתוך 60 יום מקבלת הדרישה. צרפו צילום שלה בשלב הבא."))
             Field(T("Demand number", "מספר הדרישה"), d.demand, { d.demand = it.filter(Char::isDigit).take(16) },
                 helper = T("At the top of the demand the inspector gave you", "בראש הדרישה שקיבלתם מהפקח"),
                 error = d.errors["demand"], keyboard = KeyboardType.Number)
@@ -806,11 +805,11 @@ private fun Paying(d: Draft) {
     Heading(T("How you paid", "איך שילמתם"))
     Dropdown(T("Paid with", "שילמתם עם"), meansName(d.means), T("Choose how you paid", "בחרו איך שילמתם"),
         listOf("1", "2", "3").map { it to meansName(it).orEmpty() }, d.errors["means"]) { d.means = it }
-    AnimatedVisibility(d.means == "1", enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+    AnimatedVisibility(d.means == "1", enter = expandVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(androidx.compose.animation.core.tween(200, delayMillis = 60)), exit = shrinkVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(androidx.compose.animation.core.tween(120))) {
         Field(T("Rav-Kav number", "מספר הרב-קו"), d.ravKav, { d.ravKav = it.filter(Char::isDigit).take(10) },
             helper = T("On the back of the card", "בגב הכרטיס"), error = d.errors["ravKav"], keyboard = KeyboardType.Number)
     }
-    AnimatedVisibility(d.means == "2", enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+    AnimatedVisibility(d.means == "2", enter = expandVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(androidx.compose.animation.core.tween(200, delayMillis = 60)), exit = shrinkVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(androidx.compose.animation.core.tween(120))) {
         Column(verticalArrangement = Arrangement.spacedBy(K.gap3)) {
             Dropdown(T("App", "יישומון"), appName(d.app), T("Choose the app", "בחרו יישומון"),
                 listOf("3", "4").map { it to appName(it).orEmpty() }, d.errors["app"]) { d.app = it }
@@ -819,7 +818,7 @@ private fun Paying(d: Draft) {
                 error = d.errors["appPhone"], keyboard = KeyboardType.Phone)
         }
     }
-    AnimatedVisibility(d.means == "1" || d.means == "3", enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+    AnimatedVisibility(d.means == "1" || d.means == "3", enter = expandVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(androidx.compose.animation.core.tween(200, delayMillis = 60)), exit = shrinkVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(androidx.compose.animation.core.tween(120))) {
         Field(T("Name on the card", "שם בעל הכרטיס"), d.cardholder, { d.cardholder = it.take(25) },
             helper = T("Optional, in Hebrew", "לא חובה, בעברית"), error = d.errors["cardholder"])
     }
@@ -860,9 +859,7 @@ private fun MoreStep(d: Draft, named: (ReportStop) -> ReportStop) {
             Heading(T("The ministry also asks", "משרד התחבורה שואל גם"))
             YesNo(T("Did you record it on a phone or camera?", "תיעדתם את האירוע בטלפון או במצלמה?"), d.recorded,
                 d.errors["recorded"]) { d.recorded = it }
-            Hint(d.recorded == "1", T("Add photos above. The form takes photos, not video or sound; the ministry asks you for " +
-                "those if it needs them.", "צרפו תמונות למעלה. הטופס מקבל תמונות, לא וידאו או הקלטות; משרד התחבורה יבקש " +
-                "אותם אם יצטרך."))
+            Hint(d.recorded == "1", T("Add photos above. The form takes no video or sound.", "צרפו תמונות למעלה. הטופס לא מקבל וידאו או הקלטות."))
             YesNo(T("Were there witnesses?", "היו עדים לאירוע?"), d.witnesses, d.errors["witnesses"]) { d.witnesses = it }
             Hint(d.witnesses == "1", T("Write who they were and how to reach them in your words above, as the ministry asks.",
                 "כתבו מי היו העדים ואיך אפשר להשיג אותם בתיאור למעלה, כפי שמשרד התחבורה מבקש."))
@@ -879,9 +876,8 @@ private fun YouStep(d: Draft) {
     val ctx = LocalContext.current
     StepPage(
         T("Your details", "הפרטים שלכם"),
-        T("The ministry doesn't handle anonymous reports. Kav keeps these only on this phone, sealed, and puts them in the " +
-            "form for you.", "משרד התחבורה לא מטפל בדיווחים אנונימיים. Kav שומרת את הפרטים רק בטלפון הזה, מוצפנים, וממלאת " +
-            "אותם בטופס בשבילכם."),
+        T("The ministry doesn't handle anonymous reports. Kav keeps these only on this phone.",
+            "משרד התחבורה לא מטפל בדיווחים אנונימיים. Kav שומרת את הפרטים רק בטלפון הזה."),
         action = T("Next", "הבא"), errors = d.errors,
         onAction = {
             d.next {
@@ -921,18 +917,29 @@ private fun CheckStep(d: Draft, named: (ReportStop) -> ReportStop, onFill: (Fill
     val issue = d.issue ?: return
     val about = d.about ?: return
     val ride = d.ride(named)
+    val ctx = LocalContext.current
+    // The ministry's form opened and filled in with what the rider gave.
+    fun fill() {
+        val me = d.me()
+        val answers = if (issue.conduct) Answers(d.recorded, d.witnesses, d.testifyAt, d.willing) else Answers()
+        val text = reportText(issue, d.words, d.report, ride, d.inspector)
+        val paid = d.payment()
+        onFill(Filling(d.photos.map { it.file }) { urls -> reportJson(issue, d.report, ride, text, me, answers, d.consent, urls, paid) })
+    }
+    // Kav's own, for an extension's Kav.kavAction while this step is open.
+    SideEffect { uk.noammm.kav.ext.Actions.own("report.send") { _, _ -> fill() } }
     StepPage(
         T("Check it", "בדקו לפני המילוי"),
-        T("Kav opens the ministry's form and fills it in. There you confirm your phone with the code they text you, check " +
-            "it and tap Send (שליחה).", "Kav פותחת את הטופס של משרד התחבורה וממלאת אותו. שם מאמתים את הטלפון בקוד שנשלח " +
-            "ב-SMS, בודקים ומקישים על שליחה."),
+        T("Kav opens the ministry's form and fills it in. There you confirm your phone by a texted code and tap שליחה.",
+            "Kav פותחת את הטופס של משרד התחבורה וממלאת אותו. שם מאמתים את הטלפון בקוד שנשלח ב-SMS ומקישים על שליחה."),
         action = T("Fill in the ministry's form", "מילוי הטופס של משרד התחבורה"),
+        // An extension holding report.send is told what is reported, never who reports it (the rider's name, phone and ID
+        // and the photos stay in Kav's form).
         onAction = {
-            val me = d.me()
-            val answers = if (issue.conduct) Answers(d.recorded, d.witnesses, d.testifyAt, d.willing) else Answers()
-            val text = reportText(issue, d.words, d.report, ride, d.inspector)
-            val paid = d.payment()
-            onFill(Filling(d.photos.map { it.file }) { urls -> reportJson(issue, d.report, ride, text, me, answers, d.consent, urls, paid) })
+            if (!uk.noammm.kav.ext.Actions.take(ctx, "report.send") {
+                    reportArgs(d.report).put("about", about.name.lowercase()).put("issue", issue.name.lowercase())
+                        .put("line", ride.line).put("words", d.words)
+                }) fill()
         },
     ) {
         Summary(T("What happened", "מה קרה"), listOf("${aboutLabel(about)} · ${issue.label}")) { d.go(ReportStep.WHAT) }
@@ -986,7 +993,7 @@ private fun StepPage(
             Modifier.fillMaxWidth().background(K.bg).padding(horizontal = K.gap4).padding(top = K.gap2, bottom = inset + K.gap3),
             verticalArrangement = Arrangement.spacedBy(K.gap2),
         ) {
-            AnimatedVisibility(errors.isNotEmpty(), enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            AnimatedVisibility(errors.isNotEmpty(), enter = expandVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(androidx.compose.animation.core.tween(200, delayMillis = 60)), exit = shrinkVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(androidx.compose.animation.core.tween(120))) {
                 Text(T("Fix what's marked above.", "תקנו את מה שמסומן למעלה."), style = K.type.subhead, color = K.critical)
             }
             KavButton(action, onAction, wide = true)
@@ -1186,7 +1193,7 @@ private fun YesNo(question: String, value: String, error: String?, onPick: (Stri
 
 @Composable
 private fun Hint(shown: Boolean, text: String) {
-    AnimatedVisibility(shown, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+    AnimatedVisibility(shown, enter = expandVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(androidx.compose.animation.core.tween(200, delayMillis = 60)), exit = shrinkVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(androidx.compose.animation.core.tween(120))) {
         NoteCard(text)
     }
 }
@@ -1229,7 +1236,9 @@ private fun Words(label: String, value: String, room: Int, onValue: (String) -> 
             cursorBrush = SolidColor(K.text),
             keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Sentences),
             modifier = Modifier.fillMaxWidth().heightIn(min = 112.dp).clip(RoundedCornerShape(K.rTile)).background(K.fill)
-                .semantics { contentDescription = label }.padding(horizontal = K.gap4, vertical = 12.dp),
+                .semantics { contentDescription = label },
+            // The padding inside, so the field's node has its whole background (ui/Pickers.kt, KavField).
+            decorationBox = { inner -> Box(Modifier.padding(horizontal = K.gap4, vertical = 12.dp)) { inner() } },
         )
         Under(null, T("${room - value.length} characters left", "נותרו ${room - value.length} תווים"))
     }
@@ -1535,7 +1544,7 @@ private fun MinistryForm(filling: Filling, onBack: () -> Unit, onDone: () -> Uni
                         Text(text, style = K.type.subhead, color = colour)
                     }
                 }
-                AnimatedVisibility(failed, enter = fadeIn(), exit = fadeOut()) {
+                AnimatedVisibility(failed, enter = fadeIn(androidx.compose.animation.core.tween(220, delayMillis = 60)), exit = fadeOut(androidx.compose.animation.core.tween(150))) {
                     Text(T("Try again", "ניסיון חוזר"), style = K.type.body, color = K.accentInk,
                         modifier = Modifier.clickable(role = Role.Button) {
                             failed = false

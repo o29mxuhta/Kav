@@ -13,6 +13,9 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.*
+import androidx.compose.material.icons.automirrored.rounded.DirectionsBike
+import androidx.compose.material.icons.automirrored.rounded.DirectionsRun
+import androidx.compose.material.icons.automirrored.rounded.MenuBook
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.animation.*
@@ -68,8 +71,8 @@ val FavouriteIcons: List<Pair<String, ImageVector>> = listOf(
     "ramen" to Icons.Rounded.RamenDining, "grocery" to Icons.Rounded.LocalGroceryStore, "cart" to Icons.Rounded.ShoppingCart,
     "bag" to Icons.Rounded.ShoppingBag, "mall" to Icons.Rounded.LocalMall, "store" to Icons.Rounded.Storefront,
     "hospital" to Icons.Rounded.LocalHospital, "pharmacy" to Icons.Rounded.LocalPharmacy, "medical" to Icons.Rounded.MedicalServices,
-    "gym" to Icons.Rounded.FitnessCenter, "pool" to Icons.Rounded.Pool, "run" to Icons.Rounded.DirectionsRun,
-    "bike" to Icons.Rounded.DirectionsBike, "soccer" to Icons.Rounded.SportsSoccer, "basketball" to Icons.Rounded.SportsBasketball,
+    "gym" to Icons.Rounded.FitnessCenter, "pool" to Icons.Rounded.Pool, "run" to Icons.AutoMirrored.Rounded.DirectionsRun,
+    "bike" to Icons.AutoMirrored.Rounded.DirectionsBike, "soccer" to Icons.Rounded.SportsSoccer, "basketball" to Icons.Rounded.SportsBasketball,
     "tennis" to Icons.Rounded.SportsTennis, "stadium" to Icons.Rounded.Stadium, "esports" to Icons.Rounded.SportsEsports,
     "park" to Icons.Rounded.Park, "forest" to Icons.Rounded.Forest, "terrain" to Icons.Rounded.Terrain,
     "beach" to Icons.Rounded.BeachAccess, "hiking" to Icons.Rounded.Hiking, "kayak" to Icons.Rounded.Kayaking,
@@ -79,7 +82,7 @@ val FavouriteIcons: List<Pair<String, ImageVector>> = listOf(
     "museum" to Icons.Rounded.Museum, "theater" to Icons.Rounded.TheaterComedy, "movie" to Icons.Rounded.Movie,
     "music" to Icons.Rounded.MusicNote, "piano" to Icons.Rounded.Piano, "headphones" to Icons.Rounded.Headphones,
     "nightlife" to Icons.Rounded.Nightlife, "celebration" to Icons.Rounded.Celebration, "festival" to Icons.Rounded.Festival,
-    "library" to Icons.Rounded.LocalLibrary, "book" to Icons.Rounded.MenuBook, "science" to Icons.Rounded.Science,
+    "library" to Icons.Rounded.LocalLibrary, "book" to Icons.AutoMirrored.Rounded.MenuBook, "science" to Icons.Rounded.Science,
     "computer" to Icons.Rounded.Computer, "engineering" to Icons.Rounded.Engineering, "build" to Icons.Rounded.Build,
     "handyman" to Icons.Rounded.Handyman, "factory" to Icons.Rounded.Factory, "warehouse" to Icons.Rounded.Warehouse,
     "agriculture" to Icons.Rounded.Agriculture, "garage" to Icons.Rounded.Garage, "gas" to Icons.Rounded.LocalGasStation,
@@ -177,6 +180,8 @@ fun FavouriteStrip(
     horizontalPadding: androidx.compose.ui.unit.Dp = K.gap3,
     onReorder: ((List<Favourite>) -> Unit)? = null,
     onRemove: ((Favourite) -> Unit)? = null,
+    // Over Home's map: the tiles are glass over it (LocalLiquidBackdrop).
+    glass: Boolean = false,
 ) {
     val manage = onReorder != null
     var editMode by remember { mutableStateOf(false) }
@@ -192,6 +197,7 @@ fun FavouriteStrip(
         if (inEdit) 1f else 0f,
         spring(dampingRatio = .58f, stiffness = Spring.StiffnessMediumLow), label = "editTravel",
     )
+    if (glass) VeilMaps { travel != if (inEdit) 1f else 0f }
     androidx.activity.compose.BackHandler(inEdit) { editMode = false; order = null; held = null; drag = Offset.Zero }
 
     // A favourite's tile, in its cell of the grid.
@@ -259,18 +265,25 @@ fun FavouriteStrip(
                 .combinedClickable(
                     role = Role.Button,
                     onClick = { if (inEdit) onEdit(f) else onPick(f) },
-                    onLongClick = if (inEdit) null else ({ onEdit(f) }),
+                    // Where the row can be sorted, holding a favorite starts sorting it; elsewhere it opens its editor.
+                    onLongClickLabel = if (manage) T("Sort and remove favorites", "סידור והסרה של מועדפים") else null,
+                    onLongClick = when {
+                        inEdit -> null
+                        manage -> ({ editMode = true; order = null; held = null; drag = Offset.Zero })
+                        else -> ({ onEdit(f) })
+                    },
                 )
                 .padding(horizontal = K.gap1, vertical = K.gap2),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Box(contentAlignment = Alignment.Center) {
                 Box(
-                    Modifier.size(48.dp).clip(RoundedCornerShape(K.rTile))
-                        .background(if (set) K.fill else Color.Transparent)
+                    Modifier.size(48.dp)
+                        .then(if (glass) Modifier.glassSurface(K.rTile)
+                            else Modifier.clip(RoundedCornerShape(K.rTile)).background(if (set) K.fill else Color.Transparent))
                         .border(
                             if (lifted) 1.5.dp else 1.dp,
-                            if (lifted) K.accent else if (set) Color.Transparent else K.separator,
+                            if (lifted) K.accent else if (set || glass) Color.Transparent else K.separator,
                             RoundedCornerShape(K.rTile),
                         ),
                     contentAlignment = Alignment.Center,
@@ -312,8 +325,8 @@ fun FavouriteStrip(
     Column(Modifier.fillMaxWidth()) {
         BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = horizontalPadding, vertical = K.gap2)) {
             val cols = ((maxWidth + K.gap2) / SLOT).toInt().coerceAtLeast(1)
-            // Editing adds the Add tile before Done, so the grid gains a cell.
-            val slots = shown.size + if (inEdit) 2 else 1
+            // Where the row sorts, Add shows only while sorting, next to Done.
+            val slots = shown.size + if (inEdit) 2 else if (!manage) 1 else 0
             SpotGrid(
                 cols, slots, pitch,
                 Modifier.fillMaxWidth().animateContentSize(spring(dampingRatio = 1f, stiffness = 500f)),
@@ -322,13 +335,15 @@ fun FavouriteStrip(
                 if (!manage) key("add") {
                     StripTile(
                         Icons.Rounded.Add, T("Add", "הוספה"), T("Add a favorite", "הוספת מועדף"),
-                        on = false, onClick = onAdd, modifier = Modifier.layoutId(rememberSpot(shown.size, cols)),
+                        on = false, onClick = onAdd, glass = glass, modifier = Modifier.layoutId(rememberSpot(shown.size, cols)),
                     )
                 } else {
+                    // A quiet Add tile with an empty favorite's look; holding a favorite sorts and removes them.
+                    // It comes in with Done, so Home shows only the favorites.
                     if (inEdit || travel > 0f) key("add") {
                         StripTile(
                             Icons.Rounded.Add, T("Add", "הוספה"), T("Add a favorite", "הוספת מועדף"),
-                            on = false, onClick = onAdd, enabled = inEdit,
+                            on = false, onClick = onAdd, quiet = true, enabled = inEdit,
                             modifier = Modifier.layoutId(rememberSpot(shown.size, cols)).graphicsLayer {
                                 val grown = .3f + .7f * travel.coerceAtLeast(0f)
                                 alpha = travel.coerceIn(0f, 1f)
@@ -337,19 +352,16 @@ fun FavouriteStrip(
                             },
                         )
                     }
-                    key("edit") {
-                        val flipped = travel > .5f
+                    if (inEdit || travel > 0f) key("done") {
                         StripTile(
-                            if (flipped) Icons.Rounded.Check else Icons.Rounded.Edit,
-                            if (flipped) T("Done", "סיום") else T("Edit", "עריכה"),
-                            if (inEdit) T("Finish editing favorites", "סיום עריכת המועדפים")
-                            else T("Sort and remove favorites", "סידור והסרה של מועדפים"),
-                            on = inEdit,
-                            onClick = { editMode = !editMode; order = null; held = null; drag = Offset.Zero },
-                            modifier = Modifier.layoutId(rememberSpot(shown.size + if (inEdit) 1 else 0, cols)),
-                            iconModifier = Modifier.graphicsLayer {
-                                rotationY = travel * 180f - if (flipped) 180f else 0f
-                                cameraDistance = 12f * density
+                            Icons.Rounded.Check, T("Done", "סיום"), T("Finish editing favorites", "סיום עריכת המועדפים"),
+                            on = true, enabled = inEdit, glass = glass,
+                            onClick = { editMode = false; order = null; held = null; drag = Offset.Zero },
+                            modifier = Modifier.layoutId(rememberSpot(shown.size + 1, cols)).graphicsLayer {
+                                val grown = .3f + .7f * travel.coerceAtLeast(0f)
+                                alpha = travel.coerceIn(0f, 1f)
+                                scaleX = grown
+                                scaleY = grown
                             },
                         )
                     }
@@ -411,11 +423,13 @@ private fun StripTile(
     on: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    iconModifier: Modifier = Modifier,
     enabled: Boolean = true,
+    glass: Boolean = false,
+    // An empty favorite's look: no fill, a thin edge and a faint icon, over the map too.
+    quiet: Boolean = false,
 ) {
-    val fill by animateColorAsState(if (on) K.accent else K.fill, tween(220), label = "tileFill")
-    val ink by animateColorAsState(if (on) K.onAccent else K.textSecondary, tween(220), label = "tileInk")
+    val fill by animateColorAsState(if (on) K.accent else if (glass || quiet) Color.Transparent else K.fill, tween(220), label = "tileFill")
+    val ink by animateColorAsState(if (on) K.onAccent else if (quiet) K.textTertiary else K.textSecondary, tween(220), label = "tileInk")
     Column(
         modifier.fillMaxWidth().clip(RoundedCornerShape(K.rTile))
             .clickable(enabled = enabled, role = Role.Button, onClick = onClick)
@@ -423,9 +437,10 @@ private fun StripTile(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
-            Modifier.size(48.dp).clip(RoundedCornerShape(K.rTile)).background(fill),
+            Modifier.size(48.dp).then(if (glass && !quiet) Modifier.glassSurface(K.rTile) else Modifier).clip(RoundedCornerShape(K.rTile)).background(fill)
+                .then(if (quiet) Modifier.border(1.dp, K.separator, RoundedCornerShape(K.rTile)) else Modifier),
             contentAlignment = Alignment.Center,
-        ) { Icon(icon, contentDescription = description, tint = ink, modifier = iconModifier.size(24.dp)) }
+        ) { Icon(icon, contentDescription = description, tint = ink, modifier = Modifier.size(24.dp)) }
         Spacer(Modifier.height(K.gap1))
         Text(label, style = K.type.caption, color = K.textSecondary)
     }

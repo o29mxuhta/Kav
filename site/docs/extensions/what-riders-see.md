@@ -37,16 +37,17 @@ These are all the lines there are, in the order Kav lists them. The exact words,
 
 | Line | Your extension has it when | Key |
 |---|---|---|
-| **What it is**, one line per kind: a trip planner, a provider of timetables and stop boards, a walking model, a transfer rule, a route filter, a ranker, route tags | it has a contribution with capability `plan.provide`, `board.provide`, `walk.time`, `transfer.policy`, `results.filter`, `results.rank` or `results.annotate`. One line per capability, in that order | the capability |
+| **What it is**, one line per kind: a trip planner, a provider of timetables and stop boards, routes added to results (API 5), a walking model, a transfer rule, a route filter, a ranker, route tags | it has a contribution with capability `plan.provide`, `board.provide`, `results.add`, `walk.time`, `transfer.policy`, `results.filter`, `results.rank` or `results.annotate`. One line per capability, in that order | the capability |
 | **It has its own screens** | it has a `page.provide` contribution | `page.provide` |
 | **It has a page the rider can pin as a tab** | one of its `pages` has `"tab": true` | `tab` |
 | **It can replace the Home screen** | it has a `home.body` contribution | `home.body` |
-| **It changes how Kav looks** | it has a `theme` contribution | `theme` |
+| **It changes how Kav looks** | it is a theme (`"kind": "theme"`) or has a `theme` contribution | `theme` |
 | **It draws on Kav's maps**, **sends notifications**, **uses the rider's location**, **has settings of its own** | `adds` lists `map`, `notifications`, `location` or `settings`. One line each | the word |
 | **It can add a card to the Home screen** | it has a `slot.home` contribution | `slot.home` |
 | **It can add a line to trip results** | it has a `slot.results` contribution | `slot.results` |
 | **It can add a part to a trip's page** | it has a `slot.trip` contribution | `slot.trip` |
 | **It can add a row to stop boards** | it has a `slot.stop` contribution | `slot.stop` |
+| **It adds widgets to the home screen** | it has a `widget.provide` contribution (API 5) | `widget.provide` |
 | **It takes over**, naming the actions: paying, opening stops, trip searches... | it has an `action.<name>` contribution (API 4) | `actions` |
 | **It changes parts of Kav's screens**, naming them: Home's pay card, a trip's rides... | it has a `part.<name>` contribution (API 4) | `parts` |
 | **It changes how Kav itself works** | it has a `hooks` contribution (API 4) | `hooks` |

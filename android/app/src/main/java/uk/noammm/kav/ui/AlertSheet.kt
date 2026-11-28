@@ -102,6 +102,8 @@ internal fun AlertSheet(model: KavModel, net: Net, stop: Int, onDismiss: () -> U
     }
     BottomSheet(onDismiss, scrolls = true) { close ->
         SheetHeader(T("Line alerts", "התראות קווים"), { close(onDismiss) }, subtitle = net.stopName(stop))
+        // Everything under the heading is a part (stop.alerts), told which stop.
+        KavPart("stop.alerts", stop, { stopArgs(net, stop) }) {
         val set = model.lineAlerts.filter { it.stop == key }
         if (set.isNotEmpty()) {
             Spacer(Modifier.height(K.gap3))
@@ -147,7 +149,7 @@ internal fun AlertSheet(model: KavModel, net: Net, stop: Int, onDismiss: () -> U
                 TimeButton(T("From", "משעה"), from, editing == 0, Modifier.weight(1f)) { edit(0) }
                 TimeButton(T("Until", "עד שעה"), to, editing == 1, Modifier.weight(1f)) { edit(1) }
             }
-            AnimatedVisibility(editing != null, enter = expandVertically() + fadeIn(), exit = shrinkVertically() + fadeOut()) {
+            AnimatedVisibility(editing != null, enter = expandVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(androidx.compose.animation.core.tween(200, delayMillis = 60)), exit = shrinkVertically(androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(androidx.compose.animation.core.tween(120))) {
                 key(last) {
                     // Moving the start carries the end along, so the window keeps its length, as a calendar does.
                     TimeWheels(if (last == 0) from else to) { m ->
@@ -181,14 +183,15 @@ internal fun AlertSheet(model: KavModel, net: Net, stop: Int, onDismiss: () -> U
             )
             NoteCard(
                 if (numbers.isEmpty()) T(
-                    "On those days and hours, the next trains to these places stay in your notifications, refreshed about every minute.",
-                    "בימים ובשעות האלה, הרכבות הבאות ליעדים האלה יופיעו בהתראות, ויתעדכנו בערך כל דקה.",
+                    "On those days and hours, the next trains to these places stay in your notifications.",
+                    "בימים ובשעות האלה, הרכבות הבאות ליעדים האלה יופיעו בהתראות.",
                 ) else T(
-                    "On those days and hours, the next buses of these lines stay in your notifications, refreshed about every minute.",
-                    "בימים ובשעות האלה, האוטובוסים הבאים של הקווים האלה יופיעו בהתראות, ויתעדכנו בערך כל דקה.",
+                    "On those days and hours, the next buses of these lines stay in your notifications.",
+                    "בימים ובשעות האלה, האוטובוסים הבאים של הקווים האלה יופיעו בהתראות.",
                 ),
                 Modifier.padding(top = K.gap3),
             )
+        }
         }
     }
 }

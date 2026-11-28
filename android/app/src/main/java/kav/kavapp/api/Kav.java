@@ -9,8 +9,9 @@ import android.content.Context;
  */
 public interface Kav {
     /** This API's version. A newer Kav keeps every method of an older one. 2: map, provide, home, onSettings, pickPlace, settingsScreen.
-     *  3: KavUi's multi-line textField, iconButton and pages. 4: action, kavAction, part, addTicket, hook, hooked, deoptimize, kavClassLoader. */
-    int API = 4;
+     *  3: KavUi's multi-line textField, iconButton and pages. 4: action, kavAction, part, addTicket, hook, hooked, deoptimize, kavClassLoader. 5: prefs, trips, onTrip, widget, refreshWidget, stops, vehicles, departures, addRides, capture, captureBehind,
+     *  plan, switchTrip, alarm, onAlarm, pickFile. */
+    int API = 5;
 
     int apiVersion();
 
@@ -21,6 +22,119 @@ public interface Kav {
     String id();
 
     String locale();
+
+    /** API 5. Rider display settings as JSON: stopNames ("en" or "he"), clock (12 or 24), and locale. */
+    default String prefs() { return "{}"; }
+
+    /** API 5. The rider's recent trips, newest first, as Kav's Recent trips list has them: a JSON array of {"from", "to",
+     *  "stopovers", "at", "planner"}. Each place is {"name", "detail", "lat", "lon"}; from is null for a trip from where
+     *  the rider was; at is when it was searched, in seconds since 1970; planner is the extension that planned it
+     *  ("ext:<publisher>/<dataset>"), "" for Kav's. null until the rider allows it on the extension's page. Needs a
+     *  contribution with capability "trips.history"; without it, it throws. */
+    default String trips() { return null; }
+
+    /** API 5. Told about the trip the rider follows (Start on a trip's page), as JSON text: {"event", "trip", "from",
+     *  "to", "step", "eta", "reason"}. event: "start", "step" (the rider moved on to another step), "replan" (a new route
+     *  on the way), "eta" (Kav's estimate of when the trip gets there moved to another minute, also with Kav in the
+     *  background) or "end" (reason "arrived", or "ended" when the rider ended it before). eta: when the trip gets there
+     *  as Kav estimates it now, in seconds since 1970, the trip notification's "Arrive". A trip already under way is told
+     *  at once, as "start". Only while the rider allows it on the extension's page; on a thread of Kav's, never the main
+     *  one. null stops it. Needs a contribution with capability "trips.follow"; without it, it throws. */
+    default void onTrip(TripListener listener) {}
+
+    /** API 5. A home screen widget's content, for a widget the manifest declares in "widgets" (with a contribution with
+     *  capability "widget.provide"; without it, it throws). Kav owns the widgets on the home screen; the rider places one
+     *  and chooses this one for it. Kav asks for its content when it shows, refreshes or the rider opens Kav, on a thread
+     *  of Kav's, never the main one, and draws it in its own look. null stops it. */
+    default void widget(String id, Widget widget) {}
+
+    /** API 5. Asks Kav to ask a widget of this extension for its content again now (its data changed). From any thread. */
+    default void refreshWidget(String id) {}
+
+    /** API 5. Stops from Kav's timetable on the phone. query, as JSON text: {"near": [lat, lon], "name", "mode", "code",
+     *  "limit"}, each optional; the stops that match all given, nearest first with near, else by name, at most limit (20
+     *  by default, 200 at most; with a mode other than bus, no cap). mode is the GTFS route type of a stop's lines (a
+     *  train station 2). Answers a JSON array of {"stop", "code", "name", "nameHe", "city", "lat", "lon", "mode",
+     *  "platform"}, name as Kav shows it and nameHe the timetable's own, with "metres" when near is given; null until the
+     *  timetable has loaded. From any thread. */
+    default String stops(String query) { return null; }
+
+    /** API 5. The live vehicles Kav has, as its Live tab and a line's page show them. query: {"line": "<number>"}, every
+     *  vehicle on the routes with that number, or {"near": [lat, lon], "km"}, those around a place; both, the line's
+     *  nearest the place first. Answers a JSON array of {"key", "plate", "route", "line", "to", "agency", "mode", "lat",
+     *  "lon", "bearing", "speed", "at"}, with "metres" when near is given; null when
+     *  Kav's live source can't be reached. It asks the network: never on the main thread, where it throws. */
+    default String vehicles(String query) { return null; }
+
+    /** API 5. A stop's next departures, as its board in Kav shows them now. query: {"stop": "il.mot/gtfs/stop/<code>",
+     *  "limit"} (20 by default, 100 at most). Answers a JSON array of {"line", "to", "mode", "platform", "at", "live",
+     *  "cancelled"}, times in seconds since 1970, live null for one with no live time; null when Kav doesn't know the
+     *  stop or its timetable hasn't loaded. It asks the network: never on the main thread, where it throws. */
+    default String departures(String query) { return null; }
+
+    /** API 5. Rides already over, into Kav's ride history (Settings › Paying › Ride history, Home's "This month"): a JSON
+     *  array of {"key", "kind", "line", "from", "to", "at", "riders", "band", "price"}, kind "BUS", "TRAIN" or
+     *  "LIGHT_RAIL", at in milliseconds, band the fare's reach in km, price in agorot. The same key again updates that ride;
+     *  {"key", "removed": true} takes that ride of this extension out (one its pay service cancelled). Kav keeps the key as
+     *  "ext:<id()>:<key>", as with addTicket. An extension installed from a bundle file gets a new id() with each file, so
+     *  for it a key also covers the rides an earlier bundle file of the same name left under that key. A ride that isn't
+     *  right throws. From any thread. */
+    default void addRides(String rides) {}
+
+    /** API 5. A picture of Kav's screen as it shows now, and where its pieces are on it, for an extension that draws over
+     *  the screen (the part "screen.overlay"). Needs a contribution with capability "screen.capture"; without it, it
+     *  throws. Told on the main thread: the picture, the size of the screen.overlay part's views, with Kav's maps and
+     *  what those views draw in it; and pieces, a JSON array of {"x", "y", "w", "h", "kind"}, the box of each piece in
+     *  the picture's pixels, kind "button", "field", "card" (a surface with its own background, whole with what it holds),
+     *  "text" or "image". Never a piece's text, and never what is typed:
+     *  each field's inside is painted over in the picture. null and "[]" when Kav isn't in front or the picture couldn't be taken. The picture is yours: recycle it
+     *  when you're done. From any thread. */
+    default void capture(Captured captured) {}
+
+    /** API 5. As capture, and with it behind: the same screen without its pieces, made off the screen, so nothing on it
+     *  changes. Where a piece is, what Kav draws behind it there: its background, a theme's background picture, a skin's
+     *  top bar or card, its maps; or, where that isn't what shows around the piece (a page of one color), the color seen
+     *  most around it. Elsewhere it is the picture as it is. The same size as the picture, and also yours to recycle. The
+     *  picture then has only the pieces, each with only what is its own: what of its box is what is behind it (the map,
+     *  the background around a button) is clear, as is all that is in no piece. Kav's background, a theme's background
+     *  picture and its maps are never in it, also inside a piece's outline (a see-through tile); what is a piece's own is
+     *  as Kav draws it, as clear as it is. Drawn over behind, it is the screen. Each piece's box is tight to what is its
+     *  own, and a piece with nothing of its own (a box only over the map) isn't given. null, null and "[]" as with
+     *  capture. From any thread. */
+    default void captureBehind(CapturedBehind captured) {}
+
+    /** API 5. Kav's own trip planner, as Kav's search asks it. query, as JSON text: {"from": [lat, lon], "to": [lat, lon],
+     *  "at", "way", "settings", "modes"}: at in seconds since 1970 (0 or none for now), way "d" to leave at it or "a" to
+     *  get there by it, settings the planner settings' four letters (pace s/n/f, walking l/n/m, changes n/f, time at the
+     *  stop t/n/r; the rider's own by default), modes the route types (all by default). Answers {"routes": [...]}, each
+     *  route as route rules get it with a "ref" Kav keeps it by for 15 minutes (for "results.add" and switchTrip); no
+     *  routes when it found none; null when the planner can't be reached. It asks the network: never on the main thread,
+     *  where it throws. A query that isn't right throws. */
+    default String plan(String query) { return null; }
+
+    /** API 5. The trip under way goes on with a route plan() gave, from where one of its rides ends, as Kav's own New
+     *  route from here does: change, as JSON text, {"ref", "after", "dep", "arr", "start", "walks"}, after the ride's
+     *  index in the trip's legs, dep and arr the trip's own as onTrip gives them, start and walks (optional) the route
+     *  laid out as for "results.add". True when it was switched; false for a ref it doesn't know, another trip, a ride
+     *  the rider is past, walks that don't reach the ride in time, stops on the way still ahead, or Kav's screen not
+     *  running. Only while the rider allows following trips; needs a contribution with capability "trips.follow",
+     *  without it, it throws. From any thread. */
+    default boolean switchTrip(String change) { return false; }
+
+    /** API 5. Wakes Kav at atMillis (milliseconds since 1970), with Kav closed too, and tells onAlarm's listener id once
+     *  this extension has started. The same id again moves it; atMillis of 0 or less takes it out. Android may hold it a
+     *  few minutes while the phone is idle, and a restart of the phone drops them. At most 20 at a time; more throws. From
+     *  any thread. */
+    default void alarm(String id, long atMillis) {}
+
+    /** API 5. Told each of its alarms by id, on a thread of Kav's, never the main one. null stops it. */
+    default void onAlarm(Alarm listener) {}
+
+    /** API 5. Android's picker over Kav's screen: its photo picker when types are all images ("image/*"), else its file
+     *  picker for those MIME types (all files when types is null or empty). Told the file chosen as a content:// address
+     *  this extension can read with the Context's ContentResolver while Kav runs, or null when the rider closed it. Called
+     *  from any thread; told on the main thread. */
+    default void pickFile(String[] types, Picked picked) {}
 
     /**
      * A card on one of Kav's screens: "home", "results" (a line under each route of a search's results), "trip" or
@@ -47,6 +161,12 @@ public interface Kav {
      *     null for no routes.
      *   "board.stops": {} answered with {"stops", "lines"}; "board.departures": {"stop", "from", "limit"} answered with
      *     an array of departures.
+     *   API 5, "results.add": once Kav's own planner's routes are on screen, {"query", "routes", "trip"} (query has
+     *     "reason": "search", or "replan" for New route from here with the trip under way); answered with
+     *     [{"ref", "start", "walks"}]: routes from plan() put first, their walks before the first ride from start (in
+     *     seconds since 1970) taking the seconds walks gives each. Within 20 seconds.
+     * A route's legs have, from API 5, "liveDep" and "liveArr" (a ride's live times at the stops it's boarded and left
+     * at, null without them) and "turns" (a walk's turns: {"way", "street", "metres", "lat", "lon"}).
      * Called on a thread of Kav's, never the main one, within the hook's deadline.
      */
     void provide(String name, Hook hook);
@@ -124,6 +244,37 @@ public interface Kav {
     /** A screen's view. args: the page's arguments, as JSON text. */
     interface Screen {
         android.view.View create(Context context, String args);
+    }
+
+    /** API 5. A trip event (onTrip), as JSON text. */
+    interface TripListener {
+        void trip(String event);
+    }
+
+    /** API 5. A home screen widget. content: its content as JSON text (docs/native.md has its fields), asked with args,
+     *  {"widget", "rows", "width", "height"}: rows is how many fit, width and height its size in dp. Answer within 3
+     *  seconds; Kav shows the last content it showed until then, and when it fails. tapped: a tap on a part whose action
+     *  is {"call": "<name>"}, told {"widget", "call", "row"}; Kav asks for the content again after it. */
+    interface Widget {
+        String content(String args) throws Exception;
+
+        default void tapped(String tap) throws Exception {}
+    }
+
+    /** API 5. Kav's screen as capture took it: its picture, or null, and its pieces as JSON text. */
+    interface Captured {
+        void captured(android.graphics.Bitmap picture, String pieces);
+    }
+
+    /** API 5. Kav's screen as captureBehind took it: its picture and the same screen without its pieces, or null and null,
+     *  and its pieces as JSON text. */
+    interface CapturedBehind {
+        void captured(android.graphics.Bitmap picture, android.graphics.Bitmap behind, String pieces);
+    }
+
+    /** API 5. One of its alarms (alarm), by its id. */
+    interface Alarm {
+        void ring(String id);
     }
 
     /** Its settings, all of them, as JSON text, after the rider changed one. */

@@ -1,14 +1,14 @@
 ---
-title: "Screens: cards, pages, settings, the Home body and themes"
+title: "Screens: cards, pages, settings, the Home body, themes and home screen widgets"
 editLink: false
 ---
 
 <div v-pre>
 
-# Screens: cards, pages, settings, the Home body and themes
+# Screens: cards, pages, settings, the Home body, themes and home screen widgets
 
 What an extension can show on Kav's screens. Taken from Kav 5's code: `ext/Slots.kt`, `ext/Pages.kt`,
-`ext/Blocks.kt`, `ext/Looks.kt` (paths under `android/app/src/main/java/uk/noammm/kav/`). If this page and the code
+`ext/Blocks.kt`, `ext/Looks.kt`, `ext/Widgets.kt` (paths under `android/app/src/main/java/uk/noammm/kav/`). If this page and the code
 disagree, the code is right; please report it.
 
 Every card and screen is an Android view your code makes ([native.md](/docs/extensions/native)). To look like the rest of Kav, build
@@ -21,7 +21,8 @@ it from Kav's own components (`kav.ui()`), or hand Kav a block tree and let it d
 | Have screens of your own | `page.provide` and `pages` | `kav.screen(...)` |
 | Offer a Home screen of your own | `home.body` and a page called `home` | `kav.home(...)` |
 | Let the rider set things | `settings` | `kav.settings()`, `kav.onSettings(...)` |
-| Change Kav's colors | `theme` | nothing |
+| Change how Kav looks | a theme (`"kind": "theme"`), or a `theme` contribution | nothing |
+| Put a widget on the phone's home screen (API 5) | `widget.provide` and `widgets` | `kav.widget(...)` |
 
 ## Cards on Kav's screens
 
@@ -210,29 +211,204 @@ is missing or of the wrong kind, `sections` or `blocks` isn't a list, an action 
 
 ## Themes
 
-A theme is colors in the manifest. Kav reads them; your code does nothing for it. The extension still needs
-`"native"` like any other, even if its `start` does nothing.
+A theme is a package that says `"kind": "theme"` in its manifest. Kav calls it a theme everywhere, lists it apart
+from extensions (Settings › Look, once a theme is installed, and Settings › Extensions › Themes), and
+applies one at a time: applying one takes any other off, and "Kav" goes back to Kav's own look. Sources host themes
+as they host extensions, in the same bundle or a bundle of their own, and the community list takes them the same way.
 
 ```json
-"contributions": [{ "id": "look", "capability": "theme" }],
-"theme": { "looks": { "dark": { "bg": "#0B0F14", "realtime": "#3DDC84" }, "light": { "...": "..." } } }
+{
+  "format": 1, "kind": "theme", "minKav": 48, "api": 5,
+  "name": "night-sea", "displayName": "Night sea", "version": "1.0.0", "release": 1,
+  "description": "Deep blue pages and a sea-green accent.",
+  "contributions": [],
+  "theme": {
+    "looks": { "dark": { "bg": "#0B1A2A", "accent": "#7FD1C7" }, "light": { "accent": "#2E7D72" } },
+    "lineBadges": "strip",
+    "corners": { "card": 16, "sheet": 24, "tile": 10, "badge": 6, "control": 8 },
+    "font": "fonts/Sea.ttf",
+    "outline": "line",
+    "map": { "dark": { "ground": "#08131F", "ink": "#9FD8E8", "water": "#0E2B44" } }
+  }
+}
 ```
 
-- `looks` lists any of `dark`, `oled` and `light`. A look you leave out stays Kav's.
-- Each look sets **any of the 18 roles**, as many as you like: `bg`, `surface`, `surfaceRaised`, `fill`,
-  `fillStrong`, `separator`, `text`, `textSecondary`, `textTertiary`, `surface2`, `surface3`, `surface4`,
-  `borderStrong`, `sunken`, `routeIdle`, `problem`, `critical`, `realtime`. A role you leave out stays Kav's.
-- A color is `#RRGGBB` or `#AARRGGBB`. A value that isn't a color, a role or a look Kav doesn't know, and fields Kav
-  doesn't take yet (shapes, type, a map style) are left out. The rider's own accent color stays.
-- Only a `theme` contribution whose `"theme"` isn't an object is refused.
-- The rider chooses it ("Use its look").
+A theme of colors only needs no code: leave out `"native"`, and `kavx bundle` packs its folder as it is. A theme may
+also bring anything an extension can: `native` code, `settings`, `pages`, slots, screen parts, actions and hooks. It is
+still shown as a theme. Its page in Settings says what it can do, as an extension's does, and one with code says up
+front that it runs its own code, with full access. Its `settings` show on its page while it is applied; what it does
+without a setting simply happens while it is applied, and stops when another theme or Kav's own look is.
+
+| `theme` field | What Kav takes | Leave it out and |
+|---|---|---|
+| `looks` | any of `dark`, `oled` and `light`, each setting any of the 18 color roles and `accent` | that look, or that role, stays Kav's |
+| the roles | `bg`, `surface`, `surfaceRaised`, `fill`, `fillStrong`, `separator`, `text`, `textSecondary`, `textTertiary`, `surface2`, `surface3`, `surface4`, `borderStrong`, `sunken`, `routeIdle`, `problem`, `critical`, `realtime` | Kav's own color |
+| `accent` (in a look) | buttons, chosen chips, switches and links | the rider's own color |
+| `lineBadges` | bus line badges: `"kav"` (Kav's plate in the operator's color) or `"strip"` (a gray plate over a strip of it) | the rider's own choice |
+| `corners` | whole dp: `card` 0 to 32 (Kav's 22), `sheet` 0 to 40 (28), `tile` 0 to 24 (12), `badge` 0 to 16 (8), `control` 0 to 24 (Kav's are round at the ends: buttons, chips, segmented controls, switches, icon buttons, fields, and the buttons that float over the map) | Kav's own corner |
+| `font` | the path of a `.ttf` or `.otf` file in the theme's own folder, at most three folders deep (`"fonts/Sea.ttf"`), for all of Kav's text | Kav's own type |
+| `map` | for any of `dark`, `oled` and `light`: Kav's own map drawn in two colors, `ground` (the land) and `ink` (the town names), with every road, building and name in a shade between them, and `water` in its own color if you give one | that look's map stays Kav's |
+| `outline` | how cards and controls are edged: `"kav"` (Kav's own hairline round cards), `"line"` (one solid line), `"double"` (two thin lines round cards, one round controls), `"sketch"` (drawn by hand) or `"bevel"` (a raised edge lit from above, and a gloss on controls) | Kav's own |
+| `skin` | pictures Kav draws some of its parts with, each a PNG stretched by nine slices: see **Skins** below | Kav's own parts |
+
+A color is `#RRGGBB` or `#AARRGGBB`. A value that isn't a color, a role or a look Kav doesn't know, a badge style or
+an outline it doesn't know, a corner out of its range, a font that isn't a plain path to a `.ttf` or `.otf` and a look's
+`map` without both `ground` and `ink` are left out, and so is a `skin` piece as **Skins** says. Only a `"theme"` that
+isn't an object is refused.
+
+**Fonts.** One file is all of Kav's text, every size and weight. A variable font (one with a weight axis) gives Kav's
+regular, medium, semibold and bold their own weights; any other font is drawn heavier by the phone where Kav's text is
+bold. A font Kav can't read, or one that isn't in the package, leaves Kav's own type, and `kavx check` refuses a font
+that isn't in the folder. Kav's words are English and Hebrew, so pick a font with Hebrew letters, or Hebrew falls back
+to the phone's own. Bring only a font whose license lets you share it (the SIL Open Font License does), with the
+license beside it. Parts a theme's code draws with Android views (`KavUi`) keep the phone's type.
+
+**Skins.** `skin` names a picture for any of Kav's parts, which Kav then draws in place of that part's own fill in
+every look; a part left out is drawn as Kav's. Older Kav ignores it.
+
+```json
+"skin": {
+  "topBar": { "image": "skin/topBar.png", "insets": [28, 9, 35, 17], "scale": 3, "ink": "#FFFFFF" },
+  "button": { "image": "skin/button.png", "insets": [8, 9, 8, 9], "scale": 1.5, "ink": "#000000" },
+  "background": "skin/wall.jpg"
+}
+```
+
+| Piece | Where Kav draws it |
+|---|---|
+| `topBar` | the top of a screen with its title, and Home's search row, on up behind the status bar; `ink` is the title's color |
+| `tabBar` | the tab bar, edge to edge and down behind the gesture area, 56 dp tall; `ink` is the other tabs' color |
+| `tabSelected` | the chosen tab, which slides from tab to tab; `ink` is its icon's and name's color |
+| `button`, `buttonPressed`, `buttonPrimary` | buttons (and icon buttons, chips and the chosen one of a segmented control); a pressed button and a chosen chip on `buttonPressed`, the main action's button on `buttonPrimary` |
+| `card` | cards (anything at the `card` corner); Kav clips it to that corner |
+| `cardTitle` | a strip across the top of each card, as tall as its picture at its scale, with the card's content below it |
+| `field` | text fields, the search field, the track of a segmented control, and grouped lists (Live's vehicles, recent trips, stops, ride history) as one box round all their rows |
+| `background` | not a piece: a PNG, JPEG or WebP behind every screen, cropped from its middle to fill it, seen where a screen leaves its background clear |
+
+A piece is `image`, the path of a PNG in the theme's folder; `insets`, the edges kept as they are, `[left, top, right,
+bottom]` in the picture's pixels (whole numbers from 0 to 512), with the middle stretched both ways and each edge along
+its length; `scale`, dp for each of the picture's pixels (0.25 to 8, 1 if left out); and `ink`, the color of text and
+icons on it (Kav's own if left out). Where a box is smaller than two edges, both shrink together. A picture drawn larger
+than its pixels keeps them sharp, with no blur from one slice into the next. In a right-to-left language every piece is
+mirrored, as right-to-left Windows mirrors its own, so draw each for left to right. A piece Kav doesn't know, or one
+whose image isn't a PNG path or whose insets aren't four whole numbers, is left out, and `kavx check` warns. A piece is
+at most 1024 pixels a side, its insets fit inside it, and the background is made smaller past 2048 pixels; `kavx check`
+refuses a picture that isn't in the folder, isn't a PNG, is larger, or that its insets don't fit, where Kav would
+quietly leave it out. Pick the looks' colors to go with the pictures, as the pictures don't change with the look.
+
+**Outlines.** Cards, sheets, list groups and floating panels are outlined in `separator`, and buttons, chips,
+segmented controls, icon buttons and switches in `borderStrong`, so set those two with the style you pick. The map,
+icons and line badges aren't outlined.
+
+**The map.** Kav's own map is drawn in grays, darker and lighter: `map` puts each gray between your `ground` and
+`ink`, so roads, buildings and the more important names keep standing out as they do on Kav's map. Its routes, stops
+and vehicles stay in Kav's and the lines' colors, and Israel's road number signs in their own. Pick a `ground` close to
+the look's `bg` and an `ink` the town names read in. Only Kav's own map is toned: satellite photos and the other map
+types stay as they are.
+
+Not themeable: icons, spacing, shadows, the parts **Skins** doesn't list, Kav's own words, the map type, and the color
+of text on the accent (it is `text` in the light look and `bg` in the dark ones). The map type stays the rider's choice,
+since every map but Kav's own loads from someone else while the rider looks; a theme with code can still draw Kav's stop
+marks its own way with `kav.map()` ([native.md](/docs/extensions/native)).
 
 **Readability is yours to check.** Kav refuses nothing for it. `kavx check` warns when `text` or `textSecondary` is
 below 4.5:1, or `realtime`, `problem` or `critical` below 3:1, on `bg`, `surface` or `surfaceRaised`, where your
 theme sets both colors. Look at it in Kav, in each look you set, before you publish.
 
-Kav keeps its own colors on its protected screens: Settings (with extension management, sources and safe mode), its
-notices, the report form and navigation.
+Kav keeps its own look on its protected screens: Settings (with extension management, sources, safe mode and the
+themes list itself), its notices, the report form and navigation. So a theme shows once the rider leaves Settings.
+
+An extension (no `kind`) may still bring a look with a `theme` contribution and the same `"theme"` field, as before.
+The rider chooses it with "Use this look" on its page. It is the same single choice as a theme: choosing it takes the
+applied theme off.
+
+Samples: [themes/night-sea](https://github.com/ImNoammm/kav-extension-kit/blob/main/samples/themes/night-sea/manifest.json), colors, corners and outlines only, and
+[native/quiet-home](https://github.com/ImNoammm/kav-extension-kit/blob/main/samples/native/quiet-home/src/org/example/quiet/QuietHome.java), a theme with a setting that
+hides Home's suggestions card.
+
+## Home screen widgets
+
+API 5. Android only knows the widgets an app declares in its own manifest, and your code loads while Kav runs, so
+Kav owns the widgets: two of its own in the launcher's list, "Kav extension" (2 × 2) and "Kav extension, wide"
+(4 × 2), both resizable. As the rider places one, Kav asks which extension's widget it shows, and lists every widget
+of the extensions that are on. Your page in Settings › Extensions also has "Add &lt;title> to the home screen" for each,
+which places the one of your `size`. Riders see "Adds widgets to your home screen" under "It can".
+
+```json
+"contributions": [{ "id": "widgets", "capability": "widget.provide" }],
+"widgets": [
+  { "id": "next", "size": "wide",
+    "title": { "en": "Next shuttles", "he": "ההסעות הבאות" },
+    "description": { "en": "The next shuttles from the stop you choose", "he": "ההסעות הבאות מהתחנה שבחרתם" } }
+]
+```
+
+| Field | Rule |
+|---|---|
+| `id` | the same rule as a page's, unique; at most 16 widgets |
+| `title` | needs `en`; shown in Kav's list of widgets and on the Add row |
+| `description` | optional, under the title in Kav's list |
+| `size` | `"small"` (default) or `"wide"`: the one it looks best at, which Add to home screen places. The rider can resize it or place the other one |
+
+Your code gives its content, as JSON text, and Kav draws it in its own look: the rider's light or dark look (both,
+following the phone, for Settings' System look on Android 12 and newer), their accent color, Kav's corners and the
+direction of Kav's language. No views of yours: a home screen can only show a few kinds of Android's views.
+
+```kotlin
+kav.widget("next", object : Kav.Widget {
+    // args: {"widget", "rows", "width", "height"}: how many rows fit, and the widget's size in dp.
+    override fun content(args: String): String {
+        val rows = JSONObject(args).getInt("rows")
+        return JSONObject()
+            .put("title", "Shuttles from Harbor")
+            .put("rows", JSONArray(next(rows).map { d ->
+                JSONObject().put("line", d.line).put("title", "To ${d.to}").put("subtitle", "In ${d.wait} min").put("value", d.clock)
+                    .put("action", JSONObject().put("page", "line").put("args", JSONObject().put("line", d.line)))
+            }))
+            .put("note", "From the shuttle's timetable")
+            .put("empty", "No more shuttles today")
+            .put("action", JSONObject().put("call", "next-stop"))
+            .put("next", 600)
+            .toString()
+    }
+
+    // A tap on a part whose action is {"call": ...}: {"widget", "call", "row"} (row -1: the widget itself).
+    override fun tapped(tap: String) { stop = nextStop() }
+})
+
+// Your data changed: Kav asks content() again now.
+kav.onSettings { kav.refreshWidget("next") }
+```
+
+| Content field | What it is |
+|---|---|
+| `title` | its first line, in bold; none with `""` |
+| `rows` | a list of rows, as a page's rows ([Blocks](#blocks)): `title` (needed), `subtitle`, `value` (at the end, in the accent color: a time, minutes), `icon` (a page's icon names) or `line` (a line number on a plate in the accent color, instead of an icon), and `action`. Kav shows as many as fit, from the first |
+| `note` | a short line at the bottom |
+| `empty` | what it says when `rows` is empty |
+| `action` | what a tap on the widget, outside a row with an action of its own, does. Without one, it opens Kav |
+| `next` | in how many seconds the content changes by itself (the first shuttle leaves): Kav asks again then, at the soonest in 5 minutes, and only while the phone is awake |
+
+| Action | What a tap does |
+|---|---|
+| `{"stop": "il.mot/gtfs/stop/<code>"}` | opens Kav at that stop's board |
+| `{"line": "480"}` | opens Kav's Lines with that line searched |
+| `{"plan": {"lat", "lon", "name"}}` | opens Kav's planner with that destination, as on a page |
+| `{"page": "<id>", "args": {"key": "text"}}` | opens one of your pages, told the args |
+| `{"settings": true}` | opens your page in Settings › Extensions, with your settings and the switches the rider gives you |
+| `{"link": "https://..."}` (or `open`) | opens the link, straight from the home screen |
+| `{"call": "<name>"}` | tells your `tapped` (Kav starts for it if it isn't running, within a few seconds), then asks `content()` again |
+
+**When Kav asks.** When the rider places it or resizes it, when Kav opens, when you call `refreshWidget` (at most
+every ten seconds; asks in between are done once, after), at the time `next` says, and when Android updates it, every
+half hour at most. Your code runs only while Kav does: when Android asks and Kav isn't running, Android starts it, your
+extension starts as it always does, and Kav asks then. Answer within 3 seconds. When you don't (or throw, or answer
+something Kav can't read), the widget keeps what it last showed, and Kav writes why in your log; a throw also counts
+as a crash.
+
+**What it shows instead.** "This extension is off." with Open in Kav, while it's switched off, blocked or turned off
+by Kav; "Kav started without extensions" in safe mode; that it was removed, with Choose another, once it's
+uninstalled (what it showed goes with it); "Open Kav to load it." until your code first answers.
 
 ## When your code fails
 

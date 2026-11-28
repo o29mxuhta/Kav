@@ -3,6 +3,8 @@ package uk.noammm.kav.ui
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.foundation.text.appendInlineContent
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
@@ -33,6 +35,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import uk.noammm.kav.KavModel
 import uk.noammm.kav.data.KavLive
+import uk.noammm.kav.data.OnBoard
 import uk.noammm.kav.data.Transit
 import uk.noammm.kav.data.Net
 import uk.noammm.kav.data.Schedules
@@ -48,6 +51,7 @@ import uk.noammm.kav.data.trainLine
 import androidx.compose.material.icons.Icons
 import androidx.compose.material3.Icon
 import androidx.compose.material.icons.automirrored.rounded.KeyboardArrowRight
+import androidx.compose.material.icons.rounded.OutlinedFlag
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarBorder
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -124,6 +128,7 @@ suspend fun warmLines(ctx: android.content.Context, net: Net, here: Pair<Double,
     withContext(Dispatchers.Default) {
         val ends = lineEndpoints(net)
         val sections = foldLines(net, "", FILTERS[0].second, ends)
+        twinsFor(net, ends)
         val lead = leadSections(ctx, net, here, ends)
         withContext(Dispatchers.Main) {
             list.endpoints = ends; list.sections = sections; list.lead = lead; list.leadReady = true
@@ -170,18 +175,20 @@ private fun LineList(model: KavModel, net: Net, list: LineListState, note: Strin
     var sections by list::sections
     var endpoints by list::endpoints
     LaunchedEffect(net) {
-        if (endpoints.isEmpty()) endpoints = withContext(Dispatchers.Default) { lineEndpoints(net) }
+        if (endpoints.isEmpty()) endpoints = withContext(Dispatchers.Default) { lineEndpoints(net).also { twinsFor(net, it) } }
     }
     LaunchedEffect(net, q, types, endpoints) {
         sections = withContext(Dispatchers.Default) { foldLines(net, q, types, endpoints) }
     }
+    val twins = remember(net, endpoints) { twinsFor(net, endpoints) }
     var lead by list::lead
     LaunchedEffect(Unit) {
         if (model.here == null && uk.noammm.kav.hasLocationPermission(ctx)) {
             uk.noammm.kav.requestLocationOnce(ctx) { model.locate(it.first, it.second) }
         }
     }
-    LaunchedEffect(net, endpoints, model.here, q, types, model.savedLines) {
+    // T.lang: the sections' names (Saved, Recent, Nearest to you) are words, so they're made again in a new language.
+    LaunchedEffect(net, endpoints, model.here, q, types, model.savedLines, T.lang) {
         val here = model.here
         lead = if (q.isNotBlank()) {
             if (here == null) emptyList()
@@ -209,23 +216,15 @@ private fun LineList(model: KavModel, net: Net, list: LineListState, note: Strin
         )) {
             if (note != null) item(key = "note") { NoteCard(note, Modifier.animateItem().padding(bottom = K.gap3)) }
             item(key = "search") { LineSearch(q, { q = it }, types) { types = it } }
-            item(key = "count") {
-                val total = sections.sumOf { it.second.size }
-                // The count rolls as a search or a filter narrows the list.
-                LiveText(
-                    T.count(total, "1 line", "קו אחד", "lines", "קווים"), style = K.type.caption.tabular,
-                    modifier = Modifier.padding(horizontal = K.gap4),
-                )
-            }
             lead.forEach { (label, rows) ->
                 item(key = "lead-$label") { Box(Modifier.animateItem()) { SectionLabel(label) } }
-                itemsIndexed(rows, key = { _, it -> "lead-$label-${it.route}" }) { i, row -> Box(Modifier.animateItem()) { LineRowCard(model, net, row, i == 0, i == rows.lastIndex) } }
+                itemsIndexed(rows, key = { _, it -> "lead-$label-${it.route}" }) { i, row -> Box(Modifier.animateItem()) { KavPart("lines.row", row.route, { lineRowArgs(net, row) }) { LineRowCard(model, net, row, i == 0, i == rows.lastIndex, twins) } } }
             }
             if (listReady) sections.forEach { (operator, rows) ->
                 if (operator.isNotBlank()) item(key = "op-$operator") {
                     Box(Modifier.animateItem()) { SectionLabel(operatorLabel(operator)) }
                 }
-                itemsIndexed(rows, key = { _, it -> it.route }) { i, row -> Box(Modifier.animateItem()) { LineRowCard(model, net, row, i == 0, i == rows.lastIndex) } }
+                itemsIndexed(rows, key = { _, it -> it.route }) { i, row -> Box(Modifier.animateItem()) { KavPart("lines.row", row.route, { lineRowArgs(net, row) }) { LineRowCard(model, net, row, i == 0, i == rows.lastIndex, twins) } } }
             }
         }
         ScrollEdge(listState.canScrollBackward)
@@ -237,11 +236,9 @@ private fun LineList(model: KavModel, net: Net, list: LineListState, note: Strin
 @Composable
 private fun LineSearch(q: String, onQ: (String) -> Unit, types: IntArray, onTypes: (IntArray) -> Unit) {
     Column {
-        // The same card as the Stops tab's search.
+        // The same field as the Stops tab's search.
         KavPart("lines.search", q, { org.json.JSONObject().put("query", q) }) {
-            Box(Modifier.fillMaxWidth().panel(K.rCard)) {
-                KavField(q, onQ, T("Line number or name", "מספר או שם קו"), Modifier.fillMaxWidth(), search = true, flat = true)
-            }
+            KavField(q, onQ, T("Line number or name", "מספר או שם קו"), Modifier.fillMaxWidth(), search = true, floating = true)
         }
         Spacer(Modifier.height(K.gap2))
         KavPart("lines.filters", types, { org.json.JSONObject().put("modes", org.json.JSONArray(types.toList())) }) {
@@ -271,7 +268,7 @@ private fun Modifier.bleed(by: androidx.compose.ui.unit.Dp): Modifier = layout {
 private fun SectionLabel(label: String) = SectionHeader(label)
 
 @Composable
-private fun LineRowCard(model: KavModel, net: Net, row: LineRow, first: Boolean, last: Boolean) {
+private fun LineRowCard(model: KavModel, net: Net, row: LineRow, first: Boolean, last: Boolean, twins: Map<String, Boolean>) {
     Row(
         Modifier
             .fillMaxWidth()
@@ -282,7 +279,7 @@ private fun LineRowCard(model: KavModel, net: Net, row: LineRow, first: Boolean,
         horizontalArrangement = Arrangement.spacedBy(K.gap3),
     ) {
         LineIdentity(net.rType[row.route], net.rShort[row.route], busOperator(net.rType[row.route], -1) { Operators.of(net, row.route) })
-        LineSpan(net, row, Modifier.weight(1f))
+        LineSpan(net, row, twins, Modifier.weight(1f))
         RowChevron()
     }
 }
@@ -293,7 +290,7 @@ private fun RowChevron() = Icon(
     Icons.AutoMirrored.Rounded.KeyboardArrowRight, contentDescription = null, tint = K.textTertiary, modifier = Modifier.size(20.dp),
 )
 
-private fun lineEndpoints(net: Net): Map<Int, Pair<Int, Int>> {
+internal fun lineEndpoints(net: Net): Map<Int, Pair<Int, Int>> {
     val longest = IntArray(net.nRoutes) { -1 }
     for (t in net.tripRoute.indices) {
         val route = net.tripRoute[t]
@@ -310,6 +307,13 @@ private fun lineEndpoints(net: Net): Map<Int, Pair<Int, Int>> {
 }
 
 private data class LineRow(val route: Int, val a: Int, val b: Int, val both: Boolean)
+
+// What a line's row in the Lines tab is told (lines.row): its number, operator, mode and ends, as its row names them.
+private fun lineRowArgs(net: Net, row: LineRow): org.json.JSONObject = org.json.JSONObject().put("number", net.rShort[row.route])
+    .put("operator", net.agencyOf(row.route)).put("mode", net.rType[row.route]).put("from", shownEnd(net, row.a)).put("to", shownEnd(net, row.b))
+
+private fun scheduleLineArgs(l: Schedules.Line): org.json.JSONObject = org.json.JSONObject().put("number", l.number)
+    .put("operator", l.operator).put("mode", l.type).put("from", l.from).put("to", l.to)
 
 private fun terminusName(net: Net, stop: Int): String = net.name[stop].substringBefore('/').trim()
 
@@ -337,6 +341,29 @@ private fun namesakeEnds(net: Net, ends: Map<Int, Pair<Int, Int>>): Map<String, 
     return byName
 }
 
+// The row of the list a route goes in: its operator, kind and number, and its two ends either way round.
+private fun foldKey(net: Net, r: Int, e: Pair<Int, Int>?): String = if (e == null) "lone-$r" else {
+    val a = terminusName(net, e.first); val b = terminusName(net, e.second)
+    val (lo, hi) = if (a <= b) a to b else b to a
+    "${net.rAgency.getOrElse(r) { -1 }}|${net.rType[r]}|${net.rShort[r]}|$lo $hi"
+}
+
+// The ways of the line a route is, as its row in the list stands for them (an A ↔ B row is both): one route a way, the
+// route itself for its own, each with its button's words. Fewer than two: nothing to switch between.
+private fun weekWays(net: Net, route: Int, ends: Map<Int, Pair<Int, Int>>): List<Pair<Int, String>> {
+    val byName = namesakeEnds(net, ends)
+    fun endsOf(r: Int) = ends[r] ?: byName[lineKey(net, r)]
+    val key = foldKey(net, route, endsOf(route) ?: return emptyList())
+    val byWay = LinkedHashMap<Pair<String, String>, Pair<Int, Pair<Int, Int>>>()
+    for (r in listOf(route) + (0 until net.nRoutes)) {
+        if (net.rShort[r] != net.rShort[route] || net.rType[r] != net.rType[route]) continue
+        val e = endsOf(r) ?: continue
+        if (foldKey(net, r, e) == key) byWay.putIfAbsent(terminusName(net, e.first) to terminusName(net, e.second), r to e)
+    }
+    if (byWay.size < 2) return emptyList()
+    return byWay.values.map { (r, e) -> r to T("To ⁨${shownEnd(net, e.second)}⁩", "אל ⁨${shownEnd(net, e.second)}⁩") }
+}
+
 private fun foldRoutes(
     net: Net, routes: Iterable<Int>, ends: Map<Int, Pair<Int, Int>>,
     byName: Map<String, Pair<Int, Int>>,
@@ -345,17 +372,46 @@ private fun foldRoutes(
     for (r in routes) {
         val e = ends[r] ?: byName[lineKey(net, r)]
         if (e == null && ends.isNotEmpty()) continue
-        val key = if (e == null) "lone-$r" else {
-            val a = terminusName(net, e.first); val b = terminusName(net, e.second)
-            val (lo, hi) = if (a <= b) a to b else b to a
-            "${net.rAgency.getOrElse(r) { -1 }}|${net.rType[r]}|${net.rShort[r]}|$lo $hi"
-        }
+        val key = foldKey(net, r, e)
         val prev = rows[key]
         if (prev == null) rows[key] = LineRow(r, e?.first ?: -1, e?.second ?: -1, false)
         else if (!prev.both) rows[key] = prev.copy(both = true)
     }
     return rows.values
 }
+
+// Rows of one line (its operator, kind and number) that would show the same start or the same end though the stops
+// differ, and the ends that tell them apart, by line, end name and town: true for an end of that name in another town
+// too, shown with its town; false for another stop of that name in the same town, shown with its whole name. Rows out
+// of, or into, the very same stop already differ at their other end and stay as they are, as do loops.
+internal fun twinEnds(net: Net, ends: Map<Int, Pair<Int, Int>>): Map<String, Boolean> {
+    if (ends.isEmpty()) return emptyMap()
+    val out = HashMap<String, Boolean>()
+    val rows = foldRoutes(net, 0 until net.nRoutes, ends, namesakeEnds(net, ends))
+        .filter { it.a >= 0 && terminusName(net, it.a) != terminusName(net, it.b) }
+    for ((line, rs) in rows.groupBy { twinLine(net, it.route) }) {
+        if (rs.size < 2) continue
+        fun mark(s: Int, town: Boolean) { val k = twinKey(net, line, s); out[k] = town || out[k] == true }
+        for (i in rs.indices) for (j in i + 1 until rs.size) for (start in listOf(true, false)) {
+            val (r1, r2) = rs[i] to rs[j]
+            val s1 = if (start) r1.a else r1.b; val s2 = if (start) r2.a else r2.b
+            if (terminusName(net, s1) != terminusName(net, s2)) continue
+            if (net.name[s1] == net.name[s2] && net.cityOf[s1] == net.cityOf[s2]) continue
+            val town = net.cityOf[s1] != net.cityOf[s2]
+            mark(s1, town); mark(s2, town)
+        }
+    }
+    return out
+}
+
+internal fun twinLine(net: Net, r: Int) = "${net.rAgency.getOrElse(r) { -1 }}|${net.rType[r]}|${net.rShort[r]}"
+internal fun twinKey(net: Net, line: String, s: Int) = "$line|${terminusName(net, s)}|${net.cityOf[s]}"
+
+// Kept with the ends they're from, worked out off the main thread before the list shows them.
+@Volatile private var twinsKept: Pair<Map<Int, Pair<Int, Int>>, Map<String, Boolean>>? = null
+
+private fun twinsFor(net: Net, ends: Map<Int, Pair<Int, Int>>): Map<String, Boolean> =
+    twinsKept?.takeIf { it.first === ends }?.second ?: twinEnds(net, ends).also { twinsKept = ends to it }
 
 private fun foldLines(
     net: Net, q: String, types: IntArray, ends: Map<Int, Pair<Int, Int>>,
@@ -450,21 +506,35 @@ private fun operatorLabel(name: String): String = when (name) {
     else -> name
 }
 
+// A line row's ends as pieces that wrap only between them: the start, then the arrow with the end, so a name that doesn't
+// fit beside the other moves to the next line whole instead of breaking in the middle. Each name is isolated, so its own
+// language orders its words; the pieces follow the layout, start first, whatever language the names are in.
+internal fun lineSpanPieces(a: String, b: String, both: Boolean): List<String> =
+    if (a == b) listOf("\u2068$a\u2069")
+    else listOf("\u2068$a\u2069", (if (both) "↔" else T("→", "←")) + "\u00A0\u2068$b\u2069")
+
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LineSpan(net: Net, row: LineRow, modifier: Modifier = Modifier) {
+private fun LineSpan(net: Net, row: LineRow, twins: Map<String, Boolean>, modifier: Modifier = Modifier) {
     if (row.a < 0) {
         Text(T("Route stops", "תחנות המסלול"), style = K.type.body, color = K.muted, modifier = modifier)
         return
     }
-    val a = shownEnd(net, row.a); val b = shownEnd(net, row.b)
-    val text = when {
-        a == b -> "\u2068$a\u2069"
-        row.both -> "\u2068$a\u2069 ↔ \u2068$b\u2069"
-        else -> T("\u2068$a\u2069 → \u2068$b\u2069", "\u2068$a\u2069 ← \u2068$b\u2069")
+    val line = twinLine(net, row.route)
+    // An end that would read the same as another row's of the line: with its town, or as its whole name (twinEnds).
+    fun end(s: Int): String = when (twins[twinKey(net, line, s)]) {
+        true -> net.cityName(s).takeIf { it.isNotBlank() }?.let { "${shownEnd(net, s)} · $it" } ?: net.stopName(s)
+        false -> net.stopName(s)
+        null -> shownEnd(net, s)
     }
-    Text(
-        text, style = K.type.bodyStrong, maxLines = 2, overflow = TextOverflow.Ellipsis, modifier = modifier,
-    )
+    val (a, b) = if (shownEnd(net, row.a) == shownEnd(net, row.b)) shownEnd(net, row.a).let { it to it } else end(row.a) to end(row.b)
+    // A row told apart by a longer end has a line more, so the longer end isn't cut off.
+    val longer = a != shownEnd(net, row.a) || b != shownEnd(net, row.b)
+    FlowRow(modifier, horizontalArrangement = Arrangement.spacedBy(K.gap1)) {
+        for (piece in lineSpanPieces(a, b, row.both)) {
+            Text(piece, style = K.type.bodyStrong, maxLines = if (longer) 3 else 2, overflow = TextOverflow.Ellipsis)
+        }
+    }
 }
 
 // A line as the stop boards show it: its plate, with the mode's mark and the number, at least as wide as a three-digit
@@ -495,16 +565,17 @@ private fun threeDigitPlate(
     return width
 }
 
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
-private fun LineAtStop(net: Net, routes: Set<Int>, stop: Int, last: Boolean, onBoard: () -> Unit) {
+private fun LineAtStop(net: Net, routes: Set<Int>, stop: Int, last: Boolean, getOff: (() -> Unit)? = null, onBoard: () -> Unit) {
     // Counted by the clock now, every second, as the stop's board and the trip page are.
     val now = rememberClockSec()
-    val times = remember(routes, stop) {
+    // The schedule is the day's the rider picks: today's, or any of the six days after it, which the timetable has.
+    val today = remember { java.util.Calendar.getInstance(ISRAEL).get(java.util.Calendar.DAY_OF_WEEK) - 1 }
+    var day by remember(routes, stop) { mutableIntStateOf(0) }
+    val week = remember(routes, stop) {
         if (last) emptyList()
-        else {
-            val today = java.util.Calendar.getInstance(ISRAEL).get(java.util.Calendar.DAY_OF_WEEK) - 1
-            routes.flatMap { net.lineTimesAt(stop, it, today) }.distinct().sorted()
-        }
+        else (0 until 7).map { d -> routes.flatMap { net.lineTimesAt(stop, it, (today + d) % 7) }.distinct().sorted() }
     }
     val train = routes.any { net.rType[it] == 2 }
     var all by remember(routes, stop) { mutableStateOf(false) }
@@ -531,16 +602,91 @@ private fun LineAtStop(net: Net, routes: Set<Int>, stop: Int, last: Boolean, onB
             exit = androidx.compose.animation.shrinkVertically(spring(dampingRatio = 1f, stiffness = 500f), shrinkTowards = Alignment.Top) +
                 androidx.compose.animation.fadeOut(tween(120)),
         ) {
-            Text(times.joinToString("   ") { hhmm(it) }, style = K.type.subhead.tabular, lineHeight = 22.sp)
+            Column(verticalArrangement = Arrangement.spacedBy(K.gap2)) {
+                // The days scroll from one edge of the stop's card to the other, past the panel's own indent.
+                val before = K.gap3 + 18.dp + K.gap3
+                val after = K.gap3
+                Row(
+                    Modifier.layout { measurable, constraints ->
+                        val s = before.roundToPx(); val e = after.roundToPx()
+                        val placed = measurable.measure(constraints.copy(maxWidth = constraints.maxWidth + s + e))
+                        layout(placed.width - s - e, placed.height) { placed.placeRelative(-s, 0) }
+                    }.horizontalScroll(rememberScrollState()).padding(start = before, end = after),
+                    horizontalArrangement = Arrangement.spacedBy(K.gap2),
+                ) {
+                    for (d in 0 until 7) Chip(scheduleDay(d), d == day) { day = d }
+                }
+                // The picked day's times slide in from its chip's side, the height following.
+                val rtl = androidx.compose.ui.platform.LocalLayoutDirection.current == androidx.compose.ui.unit.LayoutDirection.Rtl
+                AnimatedContent(
+                    day,
+                    transitionSpec = {
+                        val dir = (if (targetState > initialState) 1 else -1) * (if (rtl) -1 else 1)
+                        (androidx.compose.animation.slideInHorizontally(spring(dampingRatio = 1f, stiffness = 500f)) { w -> dir * w / 5 } +
+                            fadeIn(tween(200, delayMillis = 60))) togetherWith
+                            (androidx.compose.animation.slideOutHorizontally(spring(dampingRatio = 1f, stiffness = 500f)) { w -> -dir * w / 5 } +
+                                fadeOut(tween(120))) using
+                            SizeTransform(clip = false) { _, _ -> spring(dampingRatio = 1f, stiffness = 500f) }
+                    },
+                    label = "scheduleDay",
+                ) { d -> DayTimes(week.getOrElse(d) { emptyList() }, if (d == 0) now else -1) }
+            }
         }
-        Row(horizontalArrangement = Arrangement.spacedBy(K.gap2)) {
-            if (times.isNotEmpty()) KavButton(
-                if (all) T("Hide schedule", "הסתרת לוח הזמנים") else T("Today's schedule", "לוח הזמנים להיום"),
+        FlowRow(horizontalArrangement = Arrangement.spacedBy(K.gap2), verticalArrangement = Arrangement.spacedBy(K.gap2)) {
+            if (week.any { it.isNotEmpty() }) KavButton(
+                if (all) T("Hide schedule", "הסתרת לוח הזמנים") else T("Schedule", "לוח הזמנים"),
                 { all = !all }, style = ButtonStyle.Secondary,
             )
             KavButton(T("Stop board", "לוח התחנה"), onBoard, style = ButtonStyle.Secondary)
+            getOff?.let { KavButton(T("Get off here", "ירידה כאן"), it, style = ButtonStyle.Secondary) }
         }
     }
+}
+
+// A day's times as a stop's printed timetable has them: the hour, then its minutes. now: today's clock, so the times
+// gone are dimmed and the next one is in the accent; -1 on another day.
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun DayTimes(times: List<Int>, now: Int) {
+    Column(
+        Modifier.fillMaxWidth().clip(RoundedCornerShape(K.rTile)).background(K.fill).padding(horizontal = K.gap3, vertical = K.gap3),
+        verticalArrangement = Arrangement.spacedBy(K.gap2),
+    ) {
+        if (times.isEmpty()) {
+            Text(T("Nothing leaves here that day.", "אין יציאות מכאן ביום הזה."), style = K.type.subhead, color = K.textSecondary)
+            return@Column
+        }
+        val next = if (now >= 0) times.firstOrNull { it >= now } else null
+        for ((hour, minutes) in times.groupBy { it / 3600 }) {
+            Row(horizontalArrangement = Arrangement.spacedBy(K.gap3)) {
+                val h = hour % 24
+                Text(
+                    if (!Shown.twelveHour) "%02d".format(java.util.Locale.US, h)
+                    else T.ltr("%d %s".format(java.util.Locale.US, (h + 11) % 12 + 1, if (h < 12) "AM" else "PM")),
+                    style = K.type.subhead.tabular.copy(fontWeight = FontWeight.SemiBold), color = K.textSecondary,
+                    modifier = Modifier.widthIn(min = if (Shown.twelveHour) 48.dp else 24.dp),
+                )
+                FlowRow(Modifier.weight(1f), horizontalArrangement = Arrangement.spacedBy(K.gap3), verticalArrangement = Arrangement.spacedBy(K.gap1)) {
+                    for (t in minutes) Text(
+                        "%02d".format(java.util.Locale.US, (t / 60) % 60), style = K.type.subhead.tabular,
+                        color = when {
+                            t == next -> K.accentInk
+                            now >= 0 && t < now -> K.textTertiary
+                            else -> K.text
+                        },
+                    )
+                }
+            }
+        }
+    }
+}
+
+// A day of the schedule, counted from today: today, tomorrow, then the day of the week with its date.
+private fun scheduleDay(d: Int): String = when (d) {
+    0 -> T("Today", "היום")
+    1 -> T("Tomorrow", "מחר")
+    else -> java.time.format.DateTimeFormatter.ofPattern("EEE d", T.locale)
+        .format(java.time.LocalDate.now(ISRAEL.toZoneId()).plusDays(d.toLong()))
 }
 
 // A stop's live times (stopLive) and the clock they were asked at, every 30 s while shown, as its board asks for them.
@@ -699,11 +845,16 @@ private fun serverLineLive(number: String, name: String, last: String?, codes: L
     return LineLive(checked = true, vehicles = area.buses.filter { it.route in routes }.map { KavLive.busArrival(it) }, shape = shape, routes = routes)
 }
 
+// The share of their size a line's stops keep with the whole line in view (MapDot.far).
+private const val STOP_FAR = 0.4f
+
 @Composable
 private fun LineRouteMap(
     calls: List<Pair<Double, Double>>, shape: List<Pair<Double, Double>>, rt: Int,
     vehicles: List<Transit.Arrival>, modifier: Modifier, selected: Int = -1, onSelect: ((Int) -> Unit)? = null,
     operator: Color? = null, trains: Boolean = rt == 2, frame: Any? = null,
+    // Where the rider is and which way the phone faces, drawn as the trip map draws them; a bus tapped (null: none).
+    me: Pair<Double, Double>? = null, heading: Float? = null, onBus: ((Transit.Arrival?) -> Unit)? = null,
 ) {
     val tint = plateFor(rt)?.fill ?: operator?.takeIf(::hued)?.let { onScreen(it, MapInk.light) } ?: MapInk.route
     val path = shape.ifEmpty { calls }
@@ -748,7 +899,8 @@ private fun LineRouteMap(
         MapGeometry(
             lines = listOf(MapLine(drawn, tint, 4f, casing = 8f)),
             dots = if (between) emptyList() else stops.drop(1).dropLast(1).flatMap { (lat, lon) ->
-                listOf(MapDot(lat, lon, MapInk.bg, 6f), MapDot(lat, lon, Color.Transparent, 3.5f, tint, 2f))
+                // Small beads on the line seen whole, as the main map's stops are, growing to its stops' size close in.
+                listOf(MapDot(lat, lon, MapInk.bg, 6f, far = STOP_FAR), MapDot(lat, lon, Color.Transparent, 3.5f, tint, 2f, far = STOP_FAR))
             } + listOf(
                 MapDot(start.first, start.second, MapInk.bg, 7f),
                 MapDot(start.first, start.second, Color.Transparent, 5f, MapInk.text, 2f),
@@ -763,15 +915,21 @@ private fun LineRouteMap(
     val reach = with(LocalDensity.current) { 22.dp.toPx() }
     // The open stop with the stops either side of it, so it's seen where it is on the line.
     val framed = if (selected in placed.indices) placed.subList((selected - 1).coerceAtLeast(0), (selected + 2).coerceAtMost(placed.size)) else path
+    val density = LocalDensity.current
+    val moving = vehicleGeometry(shown.map { it to mode }, density, track = { path })
+    val rider = remember(me, heading != null, density, MapInk.text, MapInk.icons) { riderArrowGeometry(me, heading?.let { 0f }, density) }
     TileMap(
         // frame: a new one (another way of the line) frames the map again.
         framed, modifier, geometry = geometry, focusKey = selected to frame,
-        live = vehicleGeometry(shown.map { it to mode }, LocalDensity.current, track = { path }),
-        onTap = onSelect?.let { pick ->
-            { at, proj ->
-                placed.indices.map { it to (proj.point(placed[it].first, placed[it].second) - at).getDistance() }
-                    .filter { it.second <= reach }.minByOrNull { it.second }?.let { pick(it.first) }
-            }
+        live = if (me == null) moving else moving.copy(halos = moving.halos + rider.halos, images = moving.images + rider.images, together = true),
+        rider = rider.markers.firstOrNull(), riderHeading = heading,
+        onTap = if (onSelect == null && onBus == null) null else { at, proj ->
+            // A bus before a stop, as on Live.
+            val bus = shown.map { it to (proj.point(it.lat, it.lon) - at).getDistance() }
+                .filter { it.second <= reach }.minByOrNull { it.second }?.first
+            onBus?.invoke(bus)
+            if (bus == null) placed.indices.map { it to (proj.point(placed[it].first, placed[it].second) - at).getDistance() }
+                .filter { it.second <= reach }.minByOrNull { it.second }?.let { onSelect?.invoke(it.first) }
         },
     )
 }
@@ -832,49 +990,66 @@ private fun LineLiveNote(
                 label = "lineLive",
             ) { (t, on) -> Text(t, style = K.type.subhead, color = if (on) K.realtime else K.textSecondary) }
         }
-        if (!status) AnimatedVisibility(
-            live.checked && count == 0 && next != null,
-            enter = expandVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(tween(200, delayMillis = 60)),
-            exit = shrinkVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(tween(120)),
-        ) {
-            // The next three as a route card shows them: minutes within the hour, else the time, its day only when it
-            // isn't today.
-            shownNext?.let { n ->
-                val now = rememberNow() / 1000
-                FlowRow(itemVerticalAlignment = Alignment.CenterVertically) {
-                    Text(T("Next departures from ${n.from}: ", "היציאות הבאות מ-${n.from}: "), style = K.type.subhead)
-                    DepartureTimes(n.times.map { Transit.Departure(0, it) }, now)
-                }
-            }
-        }
-        // How late it usually runs at this time of the week (lateLine()), once the server has said.
+        // Above the map, one quiet panel: the next departures as a label, their times and the stop they leave from,
+        // then how late the line usually runs and how busy it is. It opens once there's something to show in it.
         var shownLate by remember { mutableStateOf(late) }
         if (late != null) shownLate = late
-        if (!status) AnimatedVisibility(
-            late != null,
-            enter = expandVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(tween(200, delayMillis = 60)),
-            exit = shrinkVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(tween(120)),
-        ) {
-            shownLate?.let { Text(it, style = K.type.subhead, color = K.textSecondary) }
-        }
-        // At the rider's stop: when the line's next bus leaves it, and how busy it usually is then (Google's level). Not
-        // "From", which the line's next departures already start with. Kav's own level is the line's at this hour: no stop.
         var shownBusy by remember { mutableStateOf(busy) }
         if (busy != null) shownBusy = busy
+        val nextShows = live.checked && count == 0 && next != null
         if (!status) AnimatedVisibility(
-            busy != null,
+            nextShows || late != null || busy != null,
             enter = expandVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(tween(200, delayMillis = 60)),
             exit = shrinkVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(tween(120)),
         ) {
-            shownBusy?.let { (stop, crowd) ->
-                Column(Modifier.padding(top = 2.dp)) {
-                    val at = crowd.second?.let { clockFormat().format(java.util.Date(it * 1000)) }
-                    Text(when {
-                        stop.isEmpty() -> T("How busy now", "עומס עכשיו")
-                        at != null -> T("How busy at $stop at $at", "עומס ב-$stop ב-$at")
-                        else -> T("How busy at $stop", "עומס ב-$stop")
-                    }, style = K.type.subhead)
-                    CrowdLevel(crowd.first)
+            Column(Modifier.fillMaxWidth().panel(K.rCard).padding(K.gap4)) {
+                // The next three as a route card shows them: minutes within the hour, else the time, its day only when
+                // it isn't today.
+                AnimatedVisibility(
+                    nextShows,
+                    enter = expandVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(tween(200, delayMillis = 60)),
+                    exit = shrinkVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(tween(120)),
+                ) {
+                    shownNext?.let { n ->
+                        val now = rememberNow() / 1000
+                        Column(verticalArrangement = Arrangement.spacedBy(K.gap1)) {
+                            Text(T("Next departures", "היציאות הבאות"), style = K.type.caption)
+                            DepartureTimes(n.times.map { Transit.Departure(0, it) }, now)
+                            Text(T("From \u2068${n.from}\u2069", "מ־\u2068${n.from}\u2069"), style = K.type.subhead,
+                                color = K.textSecondary, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
+                }
+                // How late it usually runs at this time of the week (lateLine()), once the server has said.
+                AnimatedVisibility(
+                    late != null,
+                    enter = expandVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(tween(200, delayMillis = 60)),
+                    exit = shrinkVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(tween(120)),
+                ) {
+                    shownLate?.let {
+                        Text(it, style = K.type.subhead, color = K.textSecondary,
+                            modifier = Modifier.padding(top = if (nextShows) K.gap3 else 0.dp))
+                    }
+                }
+                // At the rider's stop: when the line's next bus leaves it, and how busy it usually is then (Google's
+                // level). Not "From", which the line's next departures already start with. Kav's own level is the line's
+                // at this hour: no stop.
+                AnimatedVisibility(
+                    busy != null,
+                    enter = expandVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(tween(200, delayMillis = 60)),
+                    exit = shrinkVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(tween(120)),
+                ) {
+                    shownBusy?.let { (stop, crowd) ->
+                        Column(Modifier.padding(top = if (nextShows || late != null) K.gap3 else 0.dp)) {
+                            val at = crowd.second?.let { clockFormat().format(java.util.Date(it * 1000)) }
+                            // Kav's own level says which hour it's for itself: no line above it.
+                            if (stop.isNotEmpty()) Text(
+                                if (at != null) T("How busy at $stop at $at", "עומס ב-$stop ב-$at") else T("How busy at $stop", "עומס ב-$stop"),
+                                style = K.type.subhead,
+                            )
+                            CrowdLevel(crowd.first)
+                        }
+                    }
                 }
             }
         }
@@ -895,14 +1070,12 @@ internal fun lateBand(at: java.util.Calendar): String {
     }
 }
 
-// How late the line usually runs in the band, as one plain line: its median lateness at its stops, how many of ten
-// passings were on time, and the days it's from. Its route with the most runs in the band, else over the whole week;
+// How late the line usually runs in the band, as one plain line: its median lateness at its stops and how many of ten
+// passings were on time. Its route with the most runs in the band, else over the whole week;
 // null when the server has no figures for it (too few runs), or they were made more than LATE_STALE_DAYS days
 // before today (the server gives none older either: live.py LATENESS_STALE).
 internal fun lateLine(late: KavLive.Lateness, routes: Set<Int>, band: String, today: java.time.LocalDate): String? {
     val made = runCatching { java.time.LocalDate.parse(late.made) }.getOrNull() ?: return null
-    val first = runCatching { java.time.LocalDate.parse(late.from) }.getOrNull() ?: return null
-    val last = runCatching { java.time.LocalDate.parse(late.to) }.getOrNull() ?: return null
     if (made.isBefore(today.minusDays(LATE_STALE_DAYS))) return null
     fun most(b: String) = routes.mapNotNull { late.routes[it]?.get(b) }.maxByOrNull { it.runs }
     val inBand = most(band)
@@ -923,20 +1096,7 @@ internal fun lateLine(late: KavLive.Lateness, routes: Set<Int>, band: String, to
         else -> T("Usually on time", "בדרך כלל בזמן")
     }
     val on = Math.round(f.onTime / 100.0).toInt()
-    // The days it's from: all of them from the first to the last, or how many of them when some are missing.
-    val span = java.time.temporal.ChronoUnit.DAYS.between(first, last).toInt() + 1
-    val weeks = Math.round(span / 7.0).toInt()
-    val all = late.days >= span
-    val n = late.days
-    val period = when {
-        span < 7 && all -> T("from the last $span days", "מ-$span הימים האחרונים")
-        span < 7 -> T("from $n days of the last $span days", "מ-$n ימים ב-$span הימים האחרונים")
-        weeks == 1 && all -> T("from the last week", "מהשבוע האחרון")
-        weeks == 1 -> T("from $n days of the last week", "מ-$n ימים בשבוע האחרון")
-        all -> T("from the last $weeks weeks", "מ-$weeks השבועות האחרונים")
-        else -> T("from $n days of the last $weeks weeks", "מ-$n ימים ב-$weeks השבועות האחרונים")
-    }
-    return listOf(lead + phrase, T("on time $on of 10", "בזמן $on מתוך 10"), period).joinToString(" · ")
+    return lead + phrase + T(" · on time $on of 10", " · בזמן $on מתוך 10")
 }
 
 // Figures made more than this many days before today aren't shown (live.py LATENESS_STALE).
@@ -1043,7 +1203,8 @@ private fun ScheduleLines(model: KavModel, net: Net, state: ScheduleListState, l
             uk.noammm.kav.requestLocationOnce(ctx) { model.locate(it.first, it.second) }
         }
     }
-    LaunchedEffect(lines, model.here, q, types, model.savedLines) {
+    // T.lang and the stop names' language are in the key (leadKey), so a change of either makes the sections again.
+    LaunchedEffect(lines, model.here, q, types, model.savedLines, T.lang, StopNames.english) {
         val key = state.leadKey(lines, model.here, q, types, model.savedLines)
         if (state.leadFor == key) return@LaunchedEffect
         val here = model.here
@@ -1072,21 +1233,20 @@ private fun ScheduleLines(model: KavModel, net: Net, state: ScheduleListState, l
                 item(key = "search") { LineSearch(q, { q = it }, types) { types = it } }
                 item(key = "count") {
                     LiveText(
-                        T.count(sections.sumOf { it.second.size }, "1 line", "קו אחד", "lines", "קווים") +
-                            T(" · from ${sourceName(Schedules.source)}", " · מ־${sourceName(Schedules.source)}"),
+                        T("From ${sourceName(Schedules.source)}", "מ־${sourceName(Schedules.source)}"),
                         style = K.type.caption.tabular, modifier = Modifier.padding(horizontal = K.gap4),
                     )
                 }
                 lead.forEach { (label, rows) ->
                     item(key = "lead-$label") { Box(Modifier.animateItem()) { SectionLabel(label) } }
                     itemsIndexed(rows, key = { _, it -> "lead-$label-${it.id}" }) { i, l ->
-                        Box(Modifier.animateItem()) { ScheduleLineRow(l, i == 0, i == rows.lastIndex) { model.openSchedule(l, -1) } }
+                        Box(Modifier.animateItem()) { KavPart("lines.row", l.id, { scheduleLineArgs(l) }) { ScheduleLineRow(l, i == 0, i == rows.lastIndex) { model.openSchedule(l, -1) } } }
                     }
                 }
                 if (listReady) sections.forEach { (operator, rows) ->
                     if (operator.isNotBlank()) item(key = "op-$operator") { Box(Modifier.animateItem()) { SectionLabel(operatorLabel(operator)) } }
                     itemsIndexed(rows, key = { _, it -> "line-${it.id}" }) { i, l ->
-                        Box(Modifier.animateItem()) { ScheduleLineRow(l, i == 0, i == rows.lastIndex) { model.openSchedule(l, -1) } }
+                        Box(Modifier.animateItem()) { KavPart("lines.row", l.id, { scheduleLineArgs(l) }) { ScheduleLineRow(l, i == 0, i == rows.lastIndex) { model.openSchedule(l, -1) } } }
                     }
                 }
             }
@@ -1248,7 +1408,16 @@ private fun TimetableLineDetail(model: KavModel, net: Net, route: Int, onBack: (
             throw e
         } catch (e: Exception) { failed = true }
     }
-    LinePage(model, net, route, line, code, failed, onBack)
+    // The line's other way, where its row in the list stands for both (A ↔ B), switched to on this page.
+    val list = remember(net) { lineListFor(net) }
+    var ways by remember(route) { mutableStateOf(emptyList<Pair<Int, String>>()) }
+    // Its buttons' words, made again in a new language, the stop names' included.
+    LaunchedEffect(route, T.lang, StopNames.english) {
+        val ends = list.endpoints.ifEmpty { withContext(Dispatchers.Default) { lineEndpoints(net).also { twinsFor(net, it) } }.also { list.endpoints = it } }
+        ways = withContext(Dispatchers.Default) { weekWays(net, route, ends) }
+    }
+    var shown by remember(route) { mutableIntStateOf(route) }
+    LinePage(model, net, shown, line, code, failed, onBack, keyRoute = route, weekWays = ways, onWeekWay = { shown = it })
 }
 
 // A provider's line opened from its list. Where the week has it, the week's version shows while its ways load.
@@ -1265,6 +1434,8 @@ private fun ScheduleLineDetail(model: KavModel, net: Net, line: Schedules.Line, 
 // where it is.
 private class PageStop(val code: Int, val name: String, val city: String, val week: Int, val lat: Double, val lon: Double)
 
+private fun pageStopRef(s: PageStop): String? = s.code.takeIf { it > 0 }?.let { "il.mot/gtfs/stop/$it" }
+
 // The way's ends over the stops, and which way they are (order, for the slide when another is picked).
 private data class PageEnds(val key: String, val order: Int, val to: String?, val from: String?)
 
@@ -1275,6 +1446,7 @@ private data class PageEnds(val key: String, val order: Int, val to: String?, va
 private fun LinePage(
     model: KavModel, net: Net, route: Int, line: Schedules.Line?, code: Int, lineFailed: Boolean, onBack: () -> Unit,
     keyRoute: Int = route,
+    weekWays: List<Pair<Int, String>> = emptyList(), onWeekWay: (Int) -> Unit = {},
 ) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val source = Schedules.source
@@ -1339,8 +1511,16 @@ private fun LinePage(
     // The way that first takes the week's place is the week's list carried on: its scroll, its open stop, no slide.
     val first = remember(route) { arrayOfNulls<String>(1) }
     if (way != null && first[0] == null) first[0] = way.id
-    val listKey = if (way == null || way.id == first[0]) "week" else way.id
-    val rows: List<PageStop>? = remember(way, weekStops) {
+    val listKey = if (way != null && way.id != first[0]) way.id
+        else if (way == null && route != keyRoute && weekWays.isNotEmpty()) "week-$route" else "week"
+    val weekPick = weekWays.indexOfFirst { it.first == route }
+    // The bus tapped on the map, by its vehicle, for this way of the line.
+    var tappedBus by remember(listKey) { mutableStateOf<String?>(null) }
+    // The rider's location and compass while a line's map is open, as for a trip's map.
+    DisposableEffect(Unit) { model.lineMapShown = true; onDispose { model.lineMapShown = false } }
+    // Stop names follow their own language setting, so they're made again when it changes, as the page's words are with
+    // Kav's language.
+    val rows: List<PageStop>? = remember(way, weekStops, StopNames.english) {
         way?.stops?.map { s ->
             PageStop(s.code, providerStopName(net, s).ifBlank { s.code.toString() }, providerStopCity(net, s), KavLive.stopOfCode(net, s.code), s.lat, s.lon)
         } ?: weekStops?.map { s -> PageStop(net.code[s], net.stopName(s), net.cityName(s), s, net.lat[s], net.lon[s]) }
@@ -1392,12 +1572,15 @@ private fun LinePage(
     val liveStops = remember(rows) { rows.orEmpty().map { it.week } }
     val byRoute = liveRoute >= 0 && liveStops.isNotEmpty() && liveStops.all { it >= 0 }
     val live = rememberLive(net, if (byRoute) liveRoute else -1, if (byRoute) liveStops else emptyList(), line, way)
-    // How late the way shown usually runs now, once Kav's server has named its routes; asked once a way.
-    var late by remember(route, way) { mutableStateOf<String?>(null) }
+    // How late the way shown usually runs now, once Kav's server has named its routes; asked once a way, and its words made
+    // from what it said, again in a new language.
+    var lateness by remember(route, way) { mutableStateOf<KavLive.Lateness?>(null) }
     LaunchedEffect(way, live.routes) {
         if (live.routes.isEmpty()) return@LaunchedEffect
-        late = withContext(Dispatchers.IO) { KavLive.lateness(live.routes) }
-            ?.let { lateLine(it, live.routes, lateBand(java.util.Calendar.getInstance(ISRAEL)), java.time.LocalDate.now(ISRAEL.toZoneId())) }
+        lateness = withContext(Dispatchers.IO) { KavLive.lateness(live.routes) }
+    }
+    val late = remember(lateness, live.routes, T.lang) {
+        lateness?.let { lateLine(it, live.routes, lateBand(java.util.Calendar.getInstance(ISRAEL)), java.time.LocalDate.now(ISRAEL.toZoneId())) }
     }
     // The line's other ways' live locations too, as often while the page shows, so a switch to one shows its own at once.
     val lifecycle = LocalLifecycleOwner.current.lifecycle
@@ -1421,7 +1604,7 @@ private fun LinePage(
             }
         }
     }
-    val weekNext = remember(route) {
+    val weekNext = remember(route, StopNames.english) {
         if (route < 0) null else nextStart(net, routes)?.let { (t, at) ->
             val from = net.stopName(net.stStop[net.tripStart[t]])
             val midnight = Schedules.base(Schedules.today())
@@ -1430,7 +1613,7 @@ private fun LinePage(
     }
     var wayNext by remember(way) { mutableStateOf<NextStart?>(null) }
     var wayNextFound by remember(way) { mutableStateOf(false) }
-    LaunchedEffect(way) {
+    LaunchedEffect(way, StopNames.english) {
         val w = way ?: return@LaunchedEffect
         val l = line ?: return@LaunchedEffect
         wayNext = withContext(Dispatchers.IO) { runCatching { scheduleNextStart(net, l, w) }.getOrNull() }
@@ -1477,7 +1660,52 @@ private fun LinePage(
     val placed = remember(rows) { rows.orEmpty().indices.filter { rows!![it].lat.isFinite() && rows[it].lon.isFinite() } }
     val calls = remember(rows, placed) { placed.map { rows!![it].lat to rows[it].lon } }
     val shape = way?.shape?.ifEmpty { null } ?: live.shape.ifEmpty { road }
+    // Get off here (OnBoard): the timetable's routes of the line, both ways and any branch, the order of the way's stops
+    // telling which; a train's, every train of it.
+    val lineRoutes = remember(route, number, rt) {
+        if (number.isBlank()) routes else (0 until net.nRoutes).filterTo(HashSet()) {
+            net.rShort[it] == number && net.rType[it] == rt &&
+                net.agencyOf(it) == (if (route >= 0) net.agencyOf(route) else line?.operator)
+        }
+    }
+    // What the line page's parts are told (line.header, line.live, line.map, line.stop): its number and operator.
+    val lineAbout = { org.json.JSONObject().put("number", if (route >= 0) net.rShort[route] else line?.number)
+        .put("operator", if (route >= 0) net.agencyOf(route) else line?.operator) }
+    fun getOffOwn(stops: List<PageStop>, i: Int) {
+        val at = model.here?.takeIf { model.hereFresh }
+        val road = shape
+        val buses = live.vehicles.filter { it.hasLocation }.mapNotNull { v -> KavLive.firstOf(v.vehicleId)?.let { it to (v.lat to v.lon) } }
+        scope.launch {
+            val built = withContext(Dispatchers.Default) {
+                // The live bus at or just behind the rider, when there is one, is the one they're on.
+                val first = at?.let { OnBoard.liveBus(road, it, buses) }
+                OnBoard.trip(net, lineRoutes, stops.map { it.week }, i, at, System.currentTimeMillis() / 1000, road, first = first)
+            }
+            if (built == null) {
+                android.widget.Toast.makeText(ctx, T("No trip of this line gets there now.", "אין עכשיו נסיעה של הקו הזה שמגיעה לשם."),
+                    android.widget.Toast.LENGTH_SHORT).show()
+                return@launch
+            }
+            // On board from the start: the trip opens on its ride, under way.
+            model.journeyStep = buildSteps(built.trip, built.from, built.to).indexOfFirst { it is Step.Ride }.coerceAtLeast(0)
+            model.activeJourney = uk.noammm.kav.ActiveJourney(built.trip, built.resolved, built.from, built.to)
+            model.openJourney = true
+            model.tab = uk.noammm.kav.Tab.Directions
+        }
+    }
 
+    // "Get off here": an extension holding line.getoff is told the line, the stop and its place on the way first.
+    fun getOff(stops: List<PageStop>, i: Int) {
+        if (!uk.noammm.kav.ext.Actions.take(ctx, "line.getoff") { lineAbout().put("stop", pageStopRef(stops[i]) ?: org.json.JSONObject.NULL)
+                .put("name", stops[i].name).put("index", i) }) getOffOwn(stops, i)
+    }
+    // Kav's own "Get off here" at a stop of the way shown, for an extension's Kav.kavAction while this page is open.
+    SideEffect {
+        uk.noammm.kav.ext.Actions.own("line.getoff") { _, a ->
+            val shown = rows.orEmpty()
+            a.optInt("index", -1).takeIf { it in 1 until shown.size && shown[it].week >= 0 }?.let { getOffOwn(shown, it) }
+        }
+    }
     Column(Modifier.fillMaxSize().background(K.bg)) {
         // A train has no number: its two ends, as its row in the list names it.
         fun twoEnds(a: String, b: String) = T("\u2068$a\u2069 → \u2068$b\u2069", "\u2068$a\u2069 ← \u2068$b\u2069")
@@ -1486,10 +1714,68 @@ private fun LinePage(
             route >= 0 -> weekStops?.takeIf { it.size >= 2 }?.let { twoEnds(shownEnd(net, it.first()), shownEnd(net, it.last())) }
             else -> line?.takeIf { it.from.isNotBlank() && it.to.isNotBlank() }?.let { twoEnds(providerEnd(it.from), providerEnd(it.to)) }
         }
-        ScreenHeader(ends ?: (T("Line ", "קו ") + number), back = onBack)
+        // A bus, train or light rail of the line reported, on the form's questions for its kind (ReportFor.train): its
+        // stops in order, the rider picking where they got on, and a train's number on the form where the rider knows it.
+        val mode = modeOf(rt)
+        val rail = mode == Mode.TRAM || mode == Mode.SUBWAY
+        val shown = rows.orEmpty()
+        val report: (() -> Unit)? = if ((mode == Mode.TRAIN || rail || mode == Mode.BUS) && shown.isNotEmpty()) {
+            {
+                val first = shown.first(); val last = shown.last()
+                model.openReport(ReportFor(
+                    line = if (mode == Mode.TRAIN) "" else number,
+                    agency = if (mode == Mode.BUS) (if (route >= 0) net.agencyOf(route) else line?.operator.orEmpty()) else "",
+                    origin = first.name, destination = last.name,
+                    stops = shown.map { ReportStop(it.week, it.name, it.code.takeIf { c -> c > 0 }?.toString()) },
+                    at = System.currentTimeMillis() / 1000,
+                    near = here,
+                    towns = if (mode == Mode.BUS && first.city.isNotBlank() && last.city.isNotBlank()) first.city to last.city else null,
+                    direction = if (mode == Mode.BUS && route >= 0) ministryDirection(net.rLong[route]) else null,
+                    train = mode != Mode.BUS,
+                    trainType = if (rail) lightRailType(first.lat.takeIf { it.isFinite() }?.let { it to first.lon }) else "1",
+                ))
+            }
+        } else null
+        ScreenHeader(ends ?: (T("Line ", "קו ") + number), back = onBack) {
+            // Before the star, once the line's stops are in.
+            AnimatedVisibility(report != null, enter = fadeIn(tween(200)), exit = fadeOut(tween(120))) {
+                KavIconButton(
+                    Icons.Rounded.OutlinedFlag,
+                    when {
+                        mode == Mode.TRAIN -> T("Report a train on this line", "דיווח על רכבת בקו הזה")
+                        rail -> T("Report a light rail on this line", "דיווח על רכבת קלה בקו הזה")
+                        else -> T("Report a bus on this line", "דיווח על אוטובוס בקו הזה")
+                    },
+                    { report?.invoke() }, floating = true, tint = K.text,
+                )
+            }
+            // Kept at the top of the Lines tab, by the week's line it is.
+            if (keyRoute >= 0) {
+                val key = lineKey(net, keyRoute)
+                val saved = key in model.savedLines
+                KavIconButton(
+                    if (saved) Icons.Rounded.Star else Icons.Rounded.StarBorder,
+                    if (saved) T("Saved, tap to remove", "שמור, הקישו להסרה") else T("Save this line", "שמירת הקו"),
+                    { model.saveLines(ctx, if (saved) model.savedLines - key else listOf(key) + model.savedLines) },
+                    floating = true, tint = if (saved) K.accentInk else K.text,
+                )
+            }
+        }
+        // Under its title the whole page scrolls: the line's header, its ways, the live card and the map scroll away first,
+        // then the stops, which have the whole screen once they are all that's left.
+        BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+        val pageHeight = maxHeight
+        val page = rememberScrollState()
+        val headerFirst = remember(page) {
+            object : androidx.compose.ui.input.nestedscroll.NestedScrollConnection {
+                override fun onPreScroll(available: androidx.compose.ui.geometry.Offset, source: androidx.compose.ui.input.nestedscroll.NestedScrollSource) =
+                    if (available.y < 0 && page.canScrollForward) androidx.compose.ui.geometry.Offset(0f, -page.dispatchRawDelta(-available.y))
+                    else androidx.compose.ui.geometry.Offset.Zero
+            }
+        }
+        Column(Modifier.fillMaxSize().nestedScroll(headerFirst).verticalScroll(page)) {
         // What the line's header part is told (ExtParts.kt): its number and operator.
-        KavPart("line.header", route to line, { org.json.JSONObject().put("number", if (route >= 0) net.rShort[route] else line?.number)
-            .put("operator", if (route >= 0) net.agencyOf(route) else line?.operator) }) {
+        KavPart("line.header", route to line, lineAbout) {
         Row(
             Modifier.padding(horizontal = K.gap4).fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -1502,7 +1788,7 @@ private fun LinePage(
                 providerStopCity(net, s).takeIf { it.isNotBlank() }?.let { " · $it" }.orEmpty()
             val ends = when {
                 way != null -> PageEnds(listKey, pick, wayName(way.stops.last()), wayName(way.stops.first()))
-                weekStops?.isNotEmpty() == true -> PageEnds(listKey, pick, weekName(weekStops!!.last()), weekName(weekStops!!.first()))
+                weekStops?.isNotEmpty() == true -> PageEnds(listKey, if (weekPick >= 0) weekPick else pick, weekName(weekStops!!.last()), weekName(weekStops!!.first()))
                 else -> PageEnds(listKey, pick, null, null)
             }
             // The way's ends move with its stops below when another way is picked, and ease to the provider's names.
@@ -1527,21 +1813,10 @@ private fun LinePage(
                     }
                 }
             }
-            // Kept at the top of the Lines tab, by the week's line it is.
-            if (keyRoute >= 0) {
-                val key = lineKey(net, keyRoute)
-                val saved = key in model.savedLines
-                KavIconButton(
-                    if (saved) Icons.Rounded.Star else Icons.Rounded.StarBorder,
-                    if (saved) T("Saved, tap to remove", "שמור, הקישו להסרה") else T("Save this line", "שמירת הקו"),
-                    { model.saveLines(ctx, if (saved) model.savedLines - key else listOf(key) + model.savedLines) },
-                    floating = true, tint = if (saved) K.accentInk else K.textSecondary,
-                )
-            }
         }
         }
         AnimatedVisibility(
-            all.size > 1,
+            all.size > 1 || (line == null && weekWays.size > 1),
             enter = expandVertically(spring(dampingRatio = 1f, stiffness = 500f), expandFrom = Alignment.Top) + fadeIn(tween(200, delayMillis = 60)),
             exit = shrinkVertically(spring(dampingRatio = 1f, stiffness = 500f), shrinkTowards = Alignment.Top) + fadeOut(tween(120)),
         ) {
@@ -1549,8 +1824,10 @@ private fun LinePage(
                 Modifier.padding(top = K.gap3).horizontalScroll(rememberScrollState()).padding(horizontal = K.gap4),
                 horizontalArrangement = Arrangement.spacedBy(K.gap2),
             ) {
-                val labels = remember(all) { wayLabels(net, all) }
-                all.forEachIndexed { i, _ -> Chip(labels.getOrElse(i) { "" }, i == pick) { picked = i; focus = -1 } }
+                if (all.size > 1) {
+                    val labels = remember(all, T.lang, StopNames.english) { wayLabels(net, all) }
+                    all.forEachIndexed { i, _ -> Chip(labels.getOrElse(i) { "" }, i == pick) { picked = i; focus = -1 } }
+                } else weekWays.forEach { (r, label) -> Chip(label, r == route) { if (r != route) onWeekWay(r) } }
             }
         }
         // Why this is the week's line: its provider couldn't be asked.
@@ -1572,59 +1849,53 @@ private fun LinePage(
             else -> 0
         }
         AnimatedContent(
-            state, Modifier.fillMaxSize(),
+            state, Modifier.fillMaxWidth(),
             transitionSpec = { fadeIn(tween(220, delayMillis = 60)) togetherWith fadeOut(tween(150)) },
             label = "linePage",
         ) { s ->
             when (s) {
                 1 -> NoteCard(T("This line has no trips in the coming days.", "אין לקו הזה נסיעות בימים הקרובים."), Modifier.padding(K.gap4))
                 2 -> NoteCard(unreachable(source, T("Try again in a moment.", "נסו שוב בעוד רגע.")), Modifier.padding(K.gap4))
-                3 -> LoadingBlock(
-                    if (route >= 0) T("Loading stops", "טוען תחנות…")
-                    else T("Loading the line from ${sourceName(source)}", "טוענים את הקו מ${sourceName(source)}"),
-                )
-                else -> Column(Modifier.fillMaxSize()) {
-                    val shown = rows.orEmpty()
+                3 -> Box(Modifier.height(pageHeight)) {
+                    LoadingBlock(
+                        if (route >= 0) T("Loading stops", "טוענים תחנות")
+                        else T("Loading the line from ${sourceName(source)}", "טוענים את הקו מ${sourceName(source)}"),
+                    )
+                }
+                else -> Column(Modifier.fillMaxWidth()) {
                     if (shown.isNotEmpty()) {
                         // The line's next departures and how busy it is lead, under its name; whether it's live goes under
                         // the map that shows it.
-                        LineLiveNote(live, next, busy, late = late)
-                        // A bus, train or light rail of the line reported, on the form's questions for its kind
-                        // (ReportFor.train): its stops in order, the rider picking where they got on, and a train's number
-                        // on the form where the rider knows it.
-                        val mode = modeOf(rt)
-                        val rail = mode == Mode.TRAM || mode == Mode.SUBWAY
-                        if (mode == Mode.TRAIN || rail || mode == Mode.BUS) Text(
-                            when {
-                                mode == Mode.TRAIN -> T("Report a train on this line", "דיווח על רכבת בקו הזה")
-                                rail -> T("Report a light rail on this line", "דיווח על רכבת קלה בקו הזה")
-                                else -> T("Report a bus on this line", "דיווח על אוטובוס בקו הזה")
-                            },
-                            fontSize = 14.sp, color = K.accentInk,
-                            modifier = Modifier.padding(horizontal = K.gap4).clickable(role = Role.Button) {
-                                val first = shown.first(); val last = shown.last()
-                                model.openReport(ReportFor(
-                                    line = if (mode == Mode.TRAIN) "" else number,
-                                    agency = if (mode == Mode.BUS) (if (route >= 0) net.agencyOf(route) else line?.operator.orEmpty()) else "",
-                                    origin = first.name, destination = last.name,
-                                    stops = shown.map { ReportStop(it.week, it.name, it.code.takeIf { c -> c > 0 }?.toString()) },
-                                    at = System.currentTimeMillis() / 1000,
-                                    near = here,
-                                    towns = if (mode == Mode.BUS && first.city.isNotBlank() && last.city.isNotBlank()) first.city to last.city else null,
-                                    direction = if (mode == Mode.BUS && route >= 0) ministryDirection(net.rLong[route]) else null,
-                                    train = mode != Mode.BUS,
-                                    trainType = if (rail) lightRailType(first.lat.takeIf { it.isFinite() }?.let { it to first.lon }) else "1",
-                                ))
-                            }.padding(vertical = K.gap2))
+                        KavPart("line.live", route to line, lineAbout, inset = K.gap4) { LineLiveNote(live, next, busy, late = late) }
                         val chosen = keys.indexOf(open)
-                        if (calls.size >= 2) LineRouteMap(
+                        if (calls.size >= 2) KavPart("line.map", route to line, lineAbout, inset = K.gap4) { LineRouteMap(
                             calls, shape, rt, live.vehicles,
                             Modifier.padding(horizontal = K.gap4).padding(top = K.gap3).fillMaxWidth().height(210.dp).panel(K.rCard),
                             placed.indexOf(chosen),
                             { i -> opened[listKey] = keys[placed[i]]; scope.launch { listFor(listKey).glideTo(placed[i]) } },
                             operator, frame = listKey,
-                        )
+                            me = model.here?.takeIf { model.hereFresh }, heading = model.heading,
+                            onBus = { tappedBus = if (it == null || it.vehicleId == tappedBus) null else it.vehicleId },
+                        ) }
                         LineLiveNote(live, null, status = true)
+                        // A bus tapped on the map: how long ago its location came and how fast it went, as Live's card says.
+                        val bus = tappedBus?.let { id -> live.vehicles.firstOrNull { it.vehicleId == id } }
+                        AnimatedVisibility(
+                            bus != null,
+                            enter = expandVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeIn(tween(200, delayMillis = 60)),
+                            exit = shrinkVertically(spring(dampingRatio = 1f, stiffness = 500f)) + fadeOut(tween(120)),
+                        ) {
+                            var kept by remember { mutableStateOf(bus) }
+                            if (bus != null) kept = bus
+                            kept?.let { a ->
+                                val now = rememberNow() / 1000
+                                val (headline, ink) = locationHeadline(a.sampleUtc, now)
+                                Column(Modifier.padding(horizontal = K.gap4).padding(top = K.gap1)) {
+                                    Text(listOfNotNull(KavLive.plateOf(a.vehicleId), headline).joinToString(" · "), style = K.type.subhead, color = ink)
+                                    updatedLine(a, headline, now)?.let { Text(it, style = K.type.subhead, color = K.textSecondary) }
+                                }
+                            }
+                        }
                     }
                     ChangingText(
                         when {
@@ -1637,16 +1908,18 @@ private fun LinePage(
                     // Another way's stops go as its road starts to change, and its own come once the road and the map have
                     // moved (WAY_SWITCH_MS), with the map's circles; the provider's taking the week's place don't move.
                     AnimatedContent(
-                        PageList(listKey, pick, way, shown, keys), Modifier.fillMaxSize(),
+                        PageList(listKey, pick, way, shown, keys), Modifier.fillMaxWidth().height(pageHeight),
                         transitionSpec = { fadeIn(tween(220, delayMillis = WAY_SWITCH_MS)) togetherWith fadeOut(tween(120)) },
                         contentKey = { it.key }, label = "way",
                     ) { l ->
-                        PageStops(model, net, line, l.way, routes, l.rows, l.keys, listFor(l.key), opened[l.key]) { k ->
+                        PageStops(model, net, line, l.way, routes, l.rows, l.keys, listFor(l.key), opened[l.key], ::getOff) { k ->
                             if (k == null) opened.remove(l.key) else opened[l.key] = k
                         }
                     }
                 }
             }
+        }
+        }
         }
     }
 }
@@ -1726,8 +1999,12 @@ private object StopTimes {
 @Composable
 private fun PageStops(
     model: KavModel, net: Net, line: Schedules.Line?, way: Schedules.Way?, routes: Set<Int>, rows: List<PageStop>,
-    keys: List<String>, state: LazyListState, open: String?, onOpen: (String?) -> Unit,
+    keys: List<String>, state: LazyListState, open: String?, onGetOff: (List<PageStop>, Int) -> Unit, onOpen: (String?) -> Unit,
 ) {
+    // What each stop's part (line.stop) is told of the line, as the page's other parts are.
+    val first = routes.minOrNull()
+    val pageAbout = { org.json.JSONObject().put("number", line?.number ?: first?.let { net.rShort[it] } ?: org.json.JSONObject.NULL)
+        .put("operator", line?.operator ?: first?.let { net.agencyOf(it) } ?: org.json.JSONObject.NULL) }
     // Every stop's times there, worked out ahead, so its card opens with them.
     LaunchedEffect(line, way) { if (line != null && way != null) withContext(Dispatchers.IO) { StopTimes.ahead(line, way) } }
     // Rows glide to their places only as the stops themselves change (the provider's list taking the week's place, with
@@ -1746,13 +2023,15 @@ private fun PageStops(
                 if (chosen) K.plateStrong else K.plateStrong.copy(alpha = 0f), androidx.compose.animation.core.tween(220), label = "chosen",
             )
             val room by androidx.compose.animation.core.animateDpAsState(if (chosen) K.gap1 else 0.dp, androidx.compose.animation.core.spring(dampingRatio = 1f, stiffness = 500f), label = "chosenRoom")
-            Column(
-                Modifier.animateItem(
+            // Each stop is a part of its own (line.stop), told the line, the stop and its place on the way.
+            KavPartRow("line.stop", keys[i], { pageAbout().put("stop", pageStopRef(s) ?: org.json.JSONObject.NULL).put("name", s.name)
+                .put("index", i).put("count", rows.size) }, Modifier.animateItem(
                     fadeInSpec = tween(220, delayMillis = 60),
                     placementSpec = if (glide.value) spring(dampingRatio = 1f, stiffness = 500f, visibilityThreshold = androidx.compose.ui.unit.IntOffset.VisibilityThreshold) else null,
                     fadeOutSpec = tween(150),
-                ).padding(vertical = room).clip(RoundedCornerShape(K.rTile)).background(shade),
-            ) {
+                ),
+            ) { m ->
+            Column(m.padding(vertical = room).clip(RoundedCornerShape(K.rTile)).background(shade)) {
                 Row(
                     Modifier
                         .fillMaxWidth()
@@ -1795,15 +2074,18 @@ private fun PageStops(
                         },
                         label = "stopTimes",
                     ) { provided ->
+                        // Not where the way starts: a rider on board gets off at any stop after it.
+                        val getOff = if (i > 0 && s.week >= 0) { { onGetOff(rows, i) } } else null
                         if (provided && way != null && line != null) {
                             ScheduleAtStop(net, s.week, line, way, i, last = i == rows.lastIndex, alight = i in way.alight, board = s.week.takeIf { it >= 0 }?.let { at ->
                                 { model.openStation(at) }
-                            })
+                            }, getOff = getOff)
                         } else if (s.week >= 0) {
-                            LineAtStop(net, routes, s.week, last = i == rows.lastIndex) { model.openStation(s.week) }
+                            LineAtStop(net, routes, s.week, last = i == rows.lastIndex, getOff = getOff) { model.openStation(s.week) }
                         }
                     }
                 }
+            }
             }
         }
     }
@@ -1855,9 +2137,11 @@ private fun scheduleNextStart(net: Net, line: Schedules.Line, way: Schedules.Way
 
 // A provider's line at one of its way's stops: its next times there and today's all, as the week's line page has them.
 // alight: riders only get off it there, so it has no times to give.
+@OptIn(ExperimentalLayoutApi::class)
 @Composable
 private fun ScheduleAtStop(
     net: Net, stop: Int, line: Schedules.Line, way: Schedules.Way, at: Int, last: Boolean, alight: Boolean, board: (() -> Unit)?,
+    getOff: (() -> Unit)? = null,
 ) {
     val now = rememberClockSec()
     var times by remember(way.id, at) { mutableStateOf(if (last || alight) emptyList() else StopTimes.get(way, at)) }
@@ -1904,7 +2188,7 @@ private fun ScheduleAtStop(
         ) {
             Text(list.joinToString("   ") { hhmm(it) }, style = K.type.subhead.tabular, lineHeight = 22.sp)
         }
-        Row {
+        FlowRow(verticalArrangement = Arrangement.spacedBy(K.gap2)) {
             // Its times come after the card opens: the schedule's button slides in before Stop board, not pushing it.
             androidx.compose.animation.AnimatedVisibility(
                 list.isNotEmpty(),
@@ -1918,7 +2202,9 @@ private fun ScheduleAtStop(
                     { all = !all }, style = ButtonStyle.Secondary, modifier = Modifier.padding(end = K.gap2),
                 )
             }
-            if (board != null) KavButton(T("Stop board", "לוח התחנה"), board, style = ButtonStyle.Secondary)
+            if (board != null) KavButton(T("Stop board", "לוח התחנה"), board, style = ButtonStyle.Secondary,
+                modifier = Modifier.padding(end = K.gap2))
+            getOff?.let { KavButton(T("Get off here", "ירידה כאן"), it, style = ButtonStyle.Secondary) }
         }
     }
 }

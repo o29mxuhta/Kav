@@ -18,11 +18,12 @@ import uk.noammm.kav.data.Transit
 import uk.noammm.kav.ui.Fix
 import uk.noammm.kav.ui.K
 import uk.noammm.kav.ui.Mode
+import uk.noammm.kav.ui.placeLabel
 import uk.noammm.kav.ui.Step
 import uk.noammm.kav.ui.T
 import uk.noammm.kav.ui.aboard
 import uk.noammm.kav.ui.RideAlong
-import uk.noammm.kav.ui.alongPath
+import uk.noammm.kav.ui.WalkAlong
 import uk.noammm.kav.ui.boardingChoice
 import uk.noammm.kav.ui.buildSteps
 import uk.noammm.kav.ui.chosenLegs
@@ -42,6 +43,7 @@ import uk.noammm.kav.ui.minsLeft
 import uk.noammm.kav.ui.minutesToAlight
 import uk.noammm.kav.ui.leavesNow
 import uk.noammm.kav.ui.platformChange
+import uk.noammm.kav.ui.rideTimes
 import uk.noammm.kav.ui.riderTrip
 import uk.noammm.kav.ui.modeName
 import uk.noammm.kav.ui.pathLength
@@ -103,11 +105,18 @@ private fun lengthOf(leg: Transit.Leg): Double =
 private fun along(run: Run, live: Fix?, now: Long): Double {
     if (live != null && run.shape.size >= 2 && distanceToPath(live.lat, live.lon, run.shape) < 150) {
         return (if (run.ride != null) RideAlong.of(run.ride, live.lat to live.lon)
-            else alongPath(live.lat, live.lon, run.shape)).coerceIn(0.0, run.metres)
+            else WalkAlong.of(run.shape, run.dep, live)).coerceIn(0.0, run.metres)
     }
     if (run.walk) return 0.0
     val span = run.arr - run.dep
     return if (span > 0) ((now - run.dep).toDouble() / span).coerceIn(0.0, 1.0) * run.metres else 0.0
+}
+
+// When the trip gets there as Kav estimates it now, the notification's "Arrive": on a ride by where it is, otherwise by
+// the plan and the live times it has. Extensions are told it too (TripEvents).
+internal fun journeyArrival(journey: ActiveJourney, steps: List<Step>, step: Int, fix: Fix?, now: Long): Long {
+    val riding = (steps.getOrNull(step) as? Step.Ride)?.let { boardingChoice(it.ride, it.wait, journey.chosen[it.legIndex] ?: 0).first }
+    return tripArrival(journey.trip, journey.resolved, journey.chosen, riding, fix?.takeIf { it.isFresh(now) }, now)
 }
 
 internal fun tripNotice(journey: ActiveJourney, current: Int, fix: Fix?, now: Long, accent: Int): TripNotice? {
@@ -190,11 +199,11 @@ internal fun tripNotice(journey: ActiveJourney, current: Int, fix: Fix?, now: Lo
         // "Now" while leaving now still makes the first ride, as the card says it (leavesNow()), not a time just gone.
         is Step.Start -> if (leavesNow(journey.trip, now)) Say(
             T("Leave now", "יציאה עכשיו"),
-            T("Start from ${step.label}", "התחלה מ${step.label}"),
+            T("Start from ${placeLabel(step.label)}", "התחלה מ${placeLabel(step.label)}"),
             T("now", "עכשיו"), Glyph(null), accent,
         ) else Say(
             T("Leave at ${time(step.time)}", "יציאה ב-${time(step.time)}"),
-            T("Start from ${step.label}", "התחלה מ${step.label}"),
+            T("Start from ${placeLabel(step.label)}", "התחלה מ${placeLabel(step.label)}"),
             time(step.time), Glyph(null), accent,
         )
         is Step.Walk -> {
@@ -241,9 +250,13 @@ internal fun tripNotice(journey: ActiveJourney, current: Int, fix: Fix?, now: Lo
             val bus = riderTrip(ride, r, live, now)?.let { trip ->
                 ride.stops.asReversed().firstNotNullOfOrNull { stop -> r.live[Transit.ArrivalKey(stop, trip)]?.takeIf { it.rtUtc > 0 } }
             }
+            // Whether the time left goes by the bus's live times (or the rider aboard it) or by the timetable alone, as the
+            // trip screen says it: the same stop times the minutes come from.
+            val timed = if (rideTimes(ride, r, riderTrip(ride, r, live, now), emptyMap(), live, now).lastOrNull()?.live == true)
+                T("Live", "בזמן אמת") else T("Scheduled", "מתוזמן")
             Say(
                 "$soon · ${place(ride.toStop)}",
-                T("On ${lineName(ride)} · $togo", "ב${lineName(ride)} · $togo"),
+                T("On ${lineName(ride)} · $togo · $timed", "ב${lineName(ride)} · $togo · $timed"),
                 soon, Glyph(legMode(ride, r)), colourOf(ride), soon, bus?.departure() ?: Transit.Departure(ride.tripId, ride.arr),
             )
         }
@@ -266,25 +279,25 @@ internal fun tripNotice(journey: ActiveJourney, current: Int, fix: Fix?, now: Lo
             )
         }
     }
-    val riding = (steps[index] as? Step.Ride)?.let { pick(it.ride, it.wait, it.legIndex).first }
-    val arrive = tripArrival(journey.trip, r, journey.chosen, riding, live, now)
+    val arrive = journeyArrival(journey, steps, index, live, now)
     return TripNotice(
         say.title, say.text, T("Arrive ${time(arrive)}", "הגעה ב-${time(arrive)}"),
         say.chip, parts, progress, say.glyph, say.tint, dueText = say.dueText, due = say.due, stops = stops,
     )
 }
 
-private val icons = HashMap<Triple<Glyph, Int, Int>, Bitmap>()
+private val icons = HashMap<List<Any>, Bitmap>()
 
 internal fun trackerIcon(glyph: Glyph, tint: Int): Bitmap = icon(glyph, tint, 96, round = true)
 
 internal fun plateIcon(glyph: Glyph, tint: Int): Bitmap = icon(glyph, tint, 144, round = false)
 
-private fun icon(glyph: Glyph, tint: Int, px: Int, round: Boolean): Bitmap = icons.getOrPut(Triple(glyph, tint, px)) {
+// In Kav's language's direction, so the walker faces the way the trip's bar fills.
+private fun icon(glyph: Glyph, tint: Int, px: Int, round: Boolean): Bitmap = icons.getOrPut(listOf(glyph, tint, px, T.rtl)) {
     val image = ImageBitmap(px, px)
     val ink = if (ColorUtils.calculateLuminance(tint) > 0.55) Color(0xFF141414) else Color.White
     CanvasDrawScope().draw(
-        Density(1f), LayoutDirection.Ltr, androidx.compose.ui.graphics.Canvas(image), Size(px.toFloat(), px.toFloat()),
+        Density(1f), if (T.rtl) LayoutDirection.Rtl else LayoutDirection.Ltr, androidx.compose.ui.graphics.Canvas(image), Size(px.toFloat(), px.toFloat()),
     ) {
         val centre = Offset(size.width / 2, size.height / 2)
         if (round) {
@@ -313,6 +326,32 @@ internal class TripAlert(val key: String, val title: String, val text: String, v
 }
 
 internal const val TURN_KEY = "turn-"
+
+// How long after its time a bus that hasn't been boarded counts as gone, and its "is arriving" with it.
+private const val LEFT_AFTER_S = 60L
+
+// Whether the alert given under this key is still about where the trip is, or its step is over and it leaves the shade:
+// "is arriving" and a wait's traffic while the rider waits for that ride and it hasn't left, "get off" and a ride's
+// traffic while on that ride, a turn while walking. A plan that stopped working and a transfer running out aren't about
+// one step, and stay.
+internal fun alertStillDue(key: String, journey: ActiveJourney, current: Int, now: Long): Boolean {
+    val leg = key.substringAfter('-').toIntOrNull()
+    val steps = buildSteps(journey.trip, journey.fromLabel, journey.toLabel)
+    val step = steps.getOrNull(current.coerceIn(0, maxOf(steps.lastIndex, 0)))
+    fun waiting() = step is Step.Wait && step.legIndex == leg && run {
+        val (ride, wait) = boardingChoice(step.ride, step.wait, journey.chosen[step.legIndex] ?: 0)
+        val at = journey.resolved.departures(ride, wait, now).firstOrNull { it.tripId == ride.tripId }?.timeUtc ?: ride.dep
+        now - at <= LEFT_AFTER_S
+    }
+    fun riding() = step is Step.Ride && step.legIndex == leg
+    return when {
+        key.startsWith("wait-") -> waiting()
+        key.startsWith("traffic-") -> waiting() || riding()
+        key.startsWith("ride-") -> riding()
+        key.startsWith(TURN_KEY) -> step is Step.Walk
+        else -> true
+    }
+}
 
 // How near a turn its alert comes: a few steps before it.
 private const val TURN_AHEAD_M = 25.0
