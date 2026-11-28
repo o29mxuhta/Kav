@@ -482,11 +482,12 @@ internal object PayMode {
 // The switch, in Settings and in setup. Turned on with something missing since: Action required, and the setup popup,
 // which has the way to turn it off.
 @Composable
-internal fun PayModeSwitch() = ListGroup(Modifier.padding(top = K.gap6)) { row { PayModeRow() }; row { ZuzuRow() } }
+internal fun PayModeSwitch() = ListGroup(Modifier.padding(top = K.gap6)) { row { PayModeRow() } }
 
-// Pay with Zuzu: soldiers' and reservists' Zuzu app, which the Pay buttons open instead of Rav-Pass while this is on.
+// Zuzu, soldiers' and reservists' app, as a choice in the payment app's list: the Pay buttons open it instead of Rav-Pass
+// or egg, and it needs none of their permissions. It is not a PayApp: Kav reads no tickets from it.
 // Adapted from the Soldiers extension in https://github.com/yair-654/yairs-kav-extensions (Yair, GPL-3.0), its Zuzu.kt and
-// its "Pay with Zuzu" setting, kept here as Kav's own switch.
+// its "Pay with Zuzu" setting.
 internal object Zuzu {
     private const val PACKAGE = "il.idf.zuzu"
     private const val WEBSITE = "https://zuzu.prat.idf.il"
@@ -500,19 +501,6 @@ internal object Zuzu {
             try { ctx.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(WEBSITE)).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)) }
             catch (_: ActivityNotFoundException) { }
         }
-    }
-}
-
-@Composable
-private fun ZuzuRow() {
-    val ctx = LocalContext.current
-    var on by remember { mutableStateOf(Prefs.zuzu(ctx)) }
-    ToggleRow(T("Pay with Zuzu", "תשלום בזוזו"), on, { Canvas(Modifier.size(18.dp)) { drawQr() } },
-        info = T("Pay buttons on Home and on each ride open Zuzu instead. It needs none of Kav's permissions.",
-            "כפתורי התשלום במסך הבית ובכל נסיעה פותחים את זוזו. אין צורך בהרשאות של Kav.")) { want ->
-        on = want
-        Prefs.setZuzu(ctx, want)
-        PayMode.refresh(ctx); uk.noammm.kav.PayEntry.sync(ctx)
     }
 }
 
@@ -578,8 +566,9 @@ internal fun PayingSettings() {
     if (extension != null) ListGroup { row { ListRow(T("With \u2068$extension\u2069", "עם \u2068$extension\u2069"), chevron = false) } }
     // Which app paying goes through, first: the switch below and the setup popup both follow this choice, so it shows
     // before paying is set up at all (otherwise a rider who wants egg would have to set Rav-Pass up just to switch).
-    else ListGroup { row { PayAppRow() }; row { PayModeRow() } }
-    if (!Shown.payments) return
+    else ListGroup { row { PayAppRow() }; if (!PayMode.zuzuOn) row { PayModeRow() } }
+    // With Zuzu there is nothing of Rav-Pass's to show.
+    if (!Shown.payments || PayMode.zuzuOn) return
     SectionHeader(PayApp.current.label())
     PlaceGroup(listOf(
         Place(T("Payment cards", "אמצעי תשלום"), Icons.Rounded.CreditCard, RavPass.paymentCards),
@@ -644,26 +633,34 @@ internal fun PayAppChoice() = ListGroup { row { PayAppRow() } }
 private fun PayAppRow() {
     val ctx = LocalContext.current
     var open by remember { mutableStateOf(false) }
-    ListRow(T("Payment app", "אפליקציית התשלום"), subtitle = PayApp.current.label(),
+    ListRow(T("Payment app", "אפליקציית התשלום"), subtitle = if (PayMode.zuzuOn) T("Zuzu", "זוזו") else PayApp.current.label(),
         leading = { Icon(Icons.Rounded.Wallet, contentDescription = null, tint = K.textSecondary, modifier = Modifier.size(22.dp)) },
         onClick = { open = true })
     if (open) PageSheet({ open = false }) { close ->
         Text(T("Payment app", "אפליקציית התשלום"), style = K.type.title, color = K.text)
         Spacer(Modifier.height(K.gap2))
-        Text(T("Pay buttons open the app you choose. Both work the same in Kav.",
-            "כפתורי התשלום פותחים את האפליקציה שתבחרו. שתיהן עובדות באותה צורה ב-Kav."),
+        Text(T("Pay buttons open the app you choose.", "כפתורי התשלום פותחים את האפליקציה שתבחרו."),
             style = K.type.body, color = K.textSecondary)
         Spacer(Modifier.height(K.gap4))
         for (app in PayApp.entries) {
             ListRow(app.label(),
-                trailing = { androidx.compose.material3.RadioButton(app == PayApp.current, onClick = null) },
+                trailing = { androidx.compose.material3.RadioButton(!PayMode.zuzuOn && app == PayApp.current, onClick = null) },
                 onClick = {
+                    Prefs.setZuzu(ctx, false)
                     PayApp.choose(ctx, app)
                     PayMode.refresh(ctx)
                     uk.noammm.kav.PayEntry.sync(ctx)
                     close { open = false }
                 }, chevron = false)
         }
+        ListRow(T("Zuzu", "זוזו"),
+            trailing = { androidx.compose.material3.RadioButton(PayMode.zuzuOn, onClick = null) },
+            onClick = {
+                Prefs.setZuzu(ctx, true)
+                PayMode.refresh(ctx)
+                uk.noammm.kav.PayEntry.sync(ctx)
+                close { open = false }
+            }, chevron = false)
     }
 }
 
