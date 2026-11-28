@@ -87,7 +87,7 @@ internal fun HomeScreen(
     }
     // The map at the top (MapPicture.kt), the glass of the places' tiles over it, and paying under Settings, which goes
     // with the map as the list scrolls.
-    // The old Home (before 5.2's map), switched by the button at the foot of Home (OldHome).
+    // The old Home (before 5.2's map), switched in Settings > Look (OldHome).
     remember { OldHome.load(ctx) }
     val mapShown = ext == null && !OldHome.on && HomeMap.shown(ctx, model.here)
     val mapLiquid = rememberLiquidBackdrop()
@@ -219,16 +219,6 @@ internal fun HomeScreen(
                         }
                     }
                 } }
-                // The button between the two looks: Home as 5.2 made it, with its map, or as it was before.
-                item(key = "home-look") {
-                    Text(
-                        if (OldHome.on) T("New home", "הבית החדש") else T("Old home", "הבית הישן"),
-                        style = K.type.caption, color = K.accentInk,
-                        modifier = Modifier.padding(top = K.gap4).clip(RoundedCornerShape(K.rTile))
-                            .clickable(role = Role.Button) { OldHome.set(ctx, !OldHome.on) }
-                            .padding(horizontal = K.gap3, vertical = K.gap3),
-                    )
-                }
             }
             }
         }
