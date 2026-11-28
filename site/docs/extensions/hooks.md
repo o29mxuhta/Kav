@@ -90,7 +90,7 @@ A card on a trip's page and a line under a search result are told about their ro
 | `trip` | string or null | For a ride: the trip's reference, `null` when Kav has none for it. `null` for every other leg. |
 | `stops` | number | For a ride: how many stops it calls at, counting the first and the last. `0` otherwise. |
 | `stopList` | object[] | For a ride: the stops it calls at, first to last, each `{ stop, name, lat, lon }` as `from` and `to` are. Empty for every other leg. |
-| `shape` | number[][] | The leg's road as `[lat, lon]` points in degrees. For a ride it runs from the stop it's boarded at to the one it's left at. Empty when Kav has no road for the leg. |
+| `shape` | string | The leg's road as a Google encoded polyline at five decimal places (the encoding a planner's `shape` already has). For a ride it runs from the stop it's boarded at to the one it's left at. `""` when Kav has no road for the leg. |
 | `liveDep`, `liveArr` | number or null | API 5. For a ride: when Kav's live times have it leave the stop it's boarded at and get to the one it's left at, in seconds since 1970. `null` without a live time, and for every other leg. |
 | `turns` | object[] | API 5. For a walk: its turns as its planner gives them, each `{ way, street, metres, lat, lon }`: `way` OpenTripPlanner's relative direction (`DEPART`, `LEFT`, `SLIGHTLY_RIGHT`, `CONTINUE`...), `street` the street it goes onto (`""` for a path with no name), `metres` how far along it. Empty for a walk without them and for every other leg. |
 
