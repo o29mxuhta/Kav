@@ -24,7 +24,7 @@ android {
         applicationId = "uk.noammm.kav"
         minSdk = 26
         targetSdk = 35
-        versionCode = 52
+        versionCode = 53
         // #108: a fork build says so (-PkavVersionName=5.2.3-fork.N), so Settings shows the fork, not Noam's 5.2.3.
         versionName = (project.findProperty("kavVersionName") as String?)?.takeIf { it.isNotBlank() } ?: "5.2.3"
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
